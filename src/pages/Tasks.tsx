@@ -34,9 +34,31 @@ const Tasks = () => {
   };
 
   useEffect(() => {
+    // 1. Load initial data
     fetchTasks();
-  }, []);
 
+    // 2. Subscribe to real-time changes
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for INSERT, UPDATE, and DELETE
+          schema: 'public',
+          table: 'tasks',
+        },
+        (payload) => {
+          console.log('Real-time change received!', payload);
+          fetchTasks(); // Refresh the list instantly
+        }
+      )
+      .subscribe();
+
+    // 3. Cleanup when the user leaves the page
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
   // Add Task
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();

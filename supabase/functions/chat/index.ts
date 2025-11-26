@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,34 +14,48 @@ serve(async (req) => {
 
   try {
     const { messages } = await req.json();
+    const userMessage = messages[messages.length - 1].content.toLowerCase();
 
-    // Get the API Key from Supabase Secrets
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) {
-      throw new Error("OPENAI_API_KEY is not set");
+    // --- SETUP DATABASE CONNECTION ---
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const authHeader = req.headers.get('Authorization')!;
+    const supabase = createClient(supabaseUrl!, supabaseAnonKey!, { global: { headers: { Authorization: authHeader } } });
+
+    let reply = "I am a simulated AI. I can help you manage tasks. Try saying 'Create task: Buy Milk'.";
+
+    // --- THE "FAKE" BRAIN LOGIC ---
+    
+    // 1. Check if user wants to create a task
+    if (userMessage.includes("create task") || userMessage.includes("add task")) {
+      
+      // Simple logic to extract the task name (everything after the colon or the word 'task')
+      let title = userMessage.split(/:\s*|task\s+/).pop(); 
+      
+      if (title && title.length > 2) {
+        console.log("Creating task:", title);
+
+        const { error } = await supabase.from("tasks").insert({
+          title: title,
+          priority: "high",
+          status: "todo"
+        });
+
+        if (error) {
+          console.error(error);
+          reply = "I tried to create the task, but something went wrong with the database.";
+        } else {
+          reply = `Done! I have created the task: "${title}" for you. check your tasks tab!`;
+        }
+      } else {
+        reply = "I understood you want to create a task, but I didn't catch the name. Try 'Create task: Finish project'.";
+      }
+    } 
+    
+    // 2. Check if user is just saying hello
+    else if (userMessage.includes("hello") || userMessage.includes("hi")) {
+      reply = "Hello! I am your offline Work Assistant. How can I help?";
     }
-
-    // Call OpenAI directly
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini", // A fast, cheap, and smart model
-        messages: [
-          {
-            role: "system",
-            content: "You are USWA, an intelligent AI work assistant. Be helpful, concise, and professional."
-          },
-          ...messages
-        ],
-      }),
-    });
-
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content;
 
     return new Response(JSON.stringify({ reply }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

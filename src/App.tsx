@@ -8,6 +8,8 @@ import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import Tasks from "./pages/Tasks";
+import DashboardLayout from "./components/DashboardLayout";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -17,14 +19,26 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-  <Route path="/" element={<Index />} />
-  <Route path="/auth" element={<Auth />} />
-  <Route path="/chat" element={<Chat />} />
-  <Route path="/tasks" element={<Tasks />} /> {/* Move this UP */}
+          {/* Public Routes */}
+          <Route path="/" element={<Index />} />
+          <Route path="/auth" element={<Auth />} />
 
-  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-  <Route path="*" element={<NotFound />} />
-</Routes>
+          {/* Protected Routes (Wrapped in DashboardLayout) */}
+          <Route path="/chat" element={
+            <DashboardLayout>
+              <Chat />
+            </DashboardLayout>
+          } />
+          
+          <Route path="/tasks" element={
+            <DashboardLayout>
+              <Tasks />
+            </DashboardLayout>
+          } />
+
+          {/* Catch-all */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
