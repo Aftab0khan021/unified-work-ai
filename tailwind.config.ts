@@ -57,6 +57,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        "gradient-start": "hsl(var(--gradient-start))",
+        "gradient-end": "hsl(var(--gradient-end))",
+        "voice-active": "hsl(var(--voice-active))",
+        "message-user": "hsl(var(--message-user))",
+        "message-assistant": "hsl(var(--message-assistant))",
       },
       borderRadius: {
         lg: "var(--radius)",
