@@ -34,27 +34,24 @@ const Tasks = () => {
   };
 
   useEffect(() => {
-    // 1. Load initial data
-    fetchTasks();
+    fetchTasks(); // Load initial tasks
 
-    // 2. Subscribe to real-time changes
+    // Listen for real-time changes from Supabase
     const channel = supabase
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen for INSERT, UPDATE, and DELETE
+          event: '*', // Listen for INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'tasks',
         },
-        (payload) => {
-          console.log('Real-time change received!', payload);
-          fetchTasks(); // Refresh the list instantly
+        () => {
+          fetchTasks(); // Refresh the list instantly when AI adds a task
         }
       )
       .subscribe();
 
-    // 3. Cleanup when the user leaves the page
     return () => {
       supabase.removeChannel(channel);
     };

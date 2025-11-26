@@ -19,24 +19,23 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          {/* Public Routes */}
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-
-          {/* Protected Routes (Wrapped in DashboardLayout) */}
+          
+          {/* Wrapped in DashboardLayout for the Sidebar */}
           <Route path="/chat" element={
             <DashboardLayout>
               <Chat />
             </DashboardLayout>
           } />
           
+          {/* Moved ABOVE the '*' route so it works */}
           <Route path="/tasks" element={
             <DashboardLayout>
               <Tasks />
             </DashboardLayout>
           } />
 
-          {/* Catch-all */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
