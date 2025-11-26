@@ -8,7 +8,6 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -16,41 +15,33 @@ serve(async (req) => {
   try {
     const { messages } = await req.json();
 
-    // 1. Setup OpenAI and Supabase Clients
-    const openAiKey = Deno.env.get("OPENAI_API_KEY");
+    // 1. Get the GROQ API Key
+    const apiKey = Deno.env.get("GROQ_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-    if (!openAiKey) {
-      throw new Error("OPENAI_API_KEY is not set");
+    if (!apiKey) {
+      throw new Error("GROQ_API_KEY is not set");
     }
-    
-    // Create a Supabase client using the USER'S Auth Token (Secure!)
-    // This ensures the AI creates tasks *for the user*, not as a generic admin.
+
+    // Create Supabase Client
     const authHeader = req.headers.get('Authorization')!;
     const supabase = createClient(supabaseUrl!, supabaseAnonKey!, { 
       global: { headers: { Authorization: authHeader } } 
     });
 
-    // 2. Define the "Tools" (Capabilities) we give to the AI
+    // 2. Define Tools (The "Hands" of the AI)
     const tools = [
       {
         type: "function",
         function: {
           name: "create_task",
-          description: "Create a new task in the user's to-do list",
+          description: "Create a new task",
           parameters: {
             type: "object",
             properties: {
-              title: {
-                type: "string",
-                description: "The title or description of the task (e.g., 'Buy Milk')",
-              },
-              priority: {
-                type: "string",
-                enum: ["low", "medium", "high", "urgent"],
-                description: "The priority level of the task",
-              },
+              title: { type: "string", description: "The task title" },
+              priority: { type: "string", enum: ["low", "medium", "high"] },
             },
             required: ["title"],
           },
@@ -58,22 +49,19 @@ serve(async (req) => {
       },
     ];
 
-    // 3. Ask OpenAI (First Pass)
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // 3. Call Groq (Llama 3) - Note the URL change!
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openAiKey}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "llama3-70b-8192", // Using Llama 3 (Free & Smart)
         messages: [
           {
             role: "system",
-            content: `You are USWA, a smart assistant. 
-            If the user asks to do something you have a tool for (like creating a task), use the tool. 
-            Otherwise, chat normally. 
-            Today's date is ${new Date().toLocaleDateString()}`
+            content: `You are USWA, a helpful work assistant. Today is ${new Date().toLocaleDateString()}.`
           },
           ...messages
         ],
@@ -83,22 +71,16 @@ serve(async (req) => {
     });
 
     const data = await response.json();
-    
-    // Check if OpenAI returned an error (e.g., insufficient quota)
-    if (data.error) {
-      throw new Error(`OpenAI Error: ${data.error.message}`);
-    }
+    if (data.error) throw new Error(data.error.message);
 
     const aiMessage = data.choices[0].message;
 
-    // 4. Check if AI wants to use a Tool
+    // 4. Handle Tool Calls (If AI wants to create a task)
     if (aiMessage.tool_calls) {
       const toolCall = aiMessage.tool_calls[0];
       
       if (toolCall.function.name === "create_task") {
-        // AI wants to create a task! Let's do it.
         const args = JSON.parse(toolCall.function.arguments);
-        
         console.log("Creating task:", args);
 
         const { error } = await supabase.from("tasks").insert({
@@ -109,19 +91,18 @@ serve(async (req) => {
 
         if (error) throw error;
 
-        // 5. Tell OpenAI we did it, so it can confirm to the user
+        // Tell Groq we finished the task
         const functionResponse = {
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({ success: true, message: "Task created successfully" }),
+          content: JSON.stringify({ success: true, message: "Task created." }),
         };
 
-        // Final call to get the polite confirmation text
-        const secondResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        const secondResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${openAiKey}`, "Content-Type": "application/json" },
+          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: "llama3-70b-8192",
             messages: [...messages, aiMessage, functionResponse],
           }),
         });
@@ -133,14 +114,12 @@ serve(async (req) => {
       }
     }
 
-    // If no tool was used, just return the normal chat reply
     return new Response(JSON.stringify({ reply: aiMessage.content }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error: any) {
-    console.error(error);
-    return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
