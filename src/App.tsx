@@ -7,7 +7,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
-
+import Tasks from "./pages/Tasks";
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -22,6 +22,7 @@ const App = () => (
           <Route path="/chat" element={<Chat />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
+          <Route path="/tasks" element={<Tasks />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
