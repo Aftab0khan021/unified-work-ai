@@ -8,30 +8,23 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const { messages } = await req.json();
-
-    // 1. Get the GROQ API Key
     const apiKey = Deno.env.get("GROQ_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-    if (!apiKey) {
-      throw new Error("GROQ_API_KEY is not set. Run: npx supabase secrets set GROQ_API_KEY=your_key");
-    }
+    if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
-    // Create Supabase Client
     const authHeader = req.headers.get('Authorization')!;
     const supabase = createClient(supabaseUrl!, supabaseAnonKey!, { 
       global: { headers: { Authorization: authHeader } } 
     });
 
-    // 2. Define Tools (The "Hands" of the AI)
     const tools = [
       {
         type: "function",
@@ -41,7 +34,7 @@ serve(async (req) => {
           parameters: {
             type: "object",
             properties: {
-              title: { type: "string", description: "The task title" },
+              title: { type: "string" },
               priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
             },
             required: ["title"],
@@ -50,7 +43,7 @@ serve(async (req) => {
       },
     ];
 
-    // 3. Call Groq (Using the NEW Llama 3.3 Model)
+    // CALLING THE NEW MODEL HERE
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -58,7 +51,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile", // <--- UPDATED MODEL HERE
+        model: "llama-3.3-70b-versatile", // <--- UPDATED
         messages: [
           {
             role: "system",
@@ -72,23 +65,14 @@ serve(async (req) => {
     });
 
     const data = await response.json();
-    
-    // Catch API errors
-    if (data.error) {
-      console.error("Groq API Error:", data.error);
-      throw new Error(`Groq Error: ${data.error.message}`);
-    }
+    if (data.error) throw new Error(`Groq Error: ${data.error.message}`);
 
     const aiMessage = data.choices[0].message;
 
-    // 4. Handle Tool Calls (If AI wants to create a task)
     if (aiMessage.tool_calls) {
       const toolCall = aiMessage.tool_calls[0];
-      
       if (toolCall.function.name === "create_task") {
         const args = JSON.parse(toolCall.function.arguments);
-        console.log("Creating task via Groq:", args);
-
         const { error } = await supabase.from("tasks").insert({
           title: args.title,
           priority: args.priority || "medium",
@@ -97,18 +81,17 @@ serve(async (req) => {
 
         if (error) throw error;
 
-        // Tell Groq we finished the task so it can confirm to user
         const functionResponse = {
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({ success: true, message: "Task created successfully." }),
+          content: JSON.stringify({ success: true, message: "Task created." }),
         };
 
         const secondResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama-3.3-70b-versatile", // <--- UPDATED MODEL HERE TOO
+            model: "llama-3.3-70b-versatile", // <--- UPDATED
             messages: [...messages, aiMessage, functionResponse],
           }),
         });
@@ -125,7 +108,6 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error("Edge Function Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
