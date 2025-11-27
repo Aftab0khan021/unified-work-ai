@@ -14,15 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type Task = {
   id: string;
   title: string;
   status: "todo" | "in_progress" | "review" | "done";
   priority: "low" | "medium" | "high" | "urgent";
-  assignee_id?: string; // New field
-  profiles?: { full_name: string } | null; // For displaying assignee name (joined)
+  assignee_id?: string;
+  profiles?: { full_name: string } | null;
 };
 
 type Member = {
@@ -36,41 +35,54 @@ const Tasks = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [selectedAssignee, setSelectedAssignee] = useState<string>("me"); // Default to self
+  const [selectedAssignee, setSelectedAssignee] = useState<string>("me");
   const [isLoading, setIsLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const { toast } = useToast();
 
-  // Get the active workspace ID
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
-  // 1. Fetch Current User
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setCurrentUserId(data.user.id);
     });
   }, []);
 
-  // 2. Fetch Workspace Members (For the dropdown)
+  // 1. Fetch Workspace Members (Fixed with Error Handling)
   useEffect(() => {
     const fetchMembers = async () => {
       if (!workspaceId) return;
-      const { data } = await supabase
+      
+      const { data, error } = await supabase
         .from("workspace_members")
-        .select("user_id, profiles(full_name)")
+        .select(`
+          user_id, 
+          profiles!workspace_members_user_id_fkey(full_name)
+        `) // Explicitly using the Foreign Key we just created
         .eq("workspace_id", workspaceId);
       
-      if (data) setMembers(data as any);
+      if (error) {
+        console.error("Error fetching members:", error);
+        // If the foreign key join fails, fallback to simple select or show error
+        // toast({ title: "Member Load Error", description: error.message, variant: "destructive" });
+      }
+      
+      if (data) {
+        // Map data to ensure structure matches
+        const formattedMembers = data.map((m: any) => ({
+          user_id: m.user_id,
+          profiles: m.profiles || { full_name: "Unknown User" }
+        }));
+        setMembers(formattedMembers);
+      }
     };
     fetchMembers();
   }, [workspaceId]);
 
-  // 3. Fetch Tasks (Filtered by RLS automatically now)
   const fetchTasks = async () => {
     if (!workspaceId) return;
 
     try {
-      // We join 'profiles' on assignee_id to get the name of the person assigned
       const { data, error } = await supabase
         .from("tasks")
         .select(`
@@ -91,7 +103,6 @@ const Tasks = () => {
 
   useEffect(() => {
     fetchTasks();
-
     const channel = supabase
       .channel('tasks-list-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
@@ -100,14 +111,12 @@ const Tasks = () => {
     return () => { supabase.removeChannel(channel); };
   }, [workspaceId]);
 
-  // 4. Add Task with Assignee
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle.trim() || !workspaceId) return;
     setIsLoading(true);
 
     try {
-      // Get default project
       const { data: projects } = await supabase
         .from("projects")
         .select("id")
@@ -125,7 +134,6 @@ const Tasks = () => {
         projectId = newProject?.id;
       }
 
-      // Determine assignee (If "me", use current user id)
       const finalAssignee = selectedAssignee === "me" ? currentUserId : selectedAssignee;
 
       const { error } = await supabase.from("tasks").insert([
@@ -142,7 +150,7 @@ const Tasks = () => {
       if (error) throw error;
 
       setNewTaskTitle("");
-      setSelectedAssignee("me"); // Reset
+      setSelectedAssignee("me");
       fetchTasks();
       toast({ title: "Success", description: "Task added!" });
     } catch (error: any) {
@@ -155,21 +163,14 @@ const Tasks = () => {
   const toggleStatus = async (task: Task) => {
     const newStatus = task.status === "done" ? "todo" : "done";
     setTasks(tasks.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)));
-
-    const { error } = await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
-    if (error) {
-      fetchTasks();
-      toast({ title: "Error", description: "Update failed" });
-    }
+    await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
+    fetchTasks();
   };
 
   const deleteTask = async (id: string) => {
     setTasks(tasks.filter((t) => t.id !== id));
-    const { error } = await supabase.from("tasks").delete().eq("id", id);
-    if (error) {
-      fetchTasks();
-      toast({ title: "Error", description: "Delete failed" });
-    }
+    await supabase.from("tasks").delete().eq("id", id);
+    fetchTasks();
   };
 
   return (
@@ -205,7 +206,6 @@ const Tasks = () => {
                   className="flex-1"
                 />
                 
-                {/* Assignee Dropdown */}
                 <Select value={selectedAssignee} onValueChange={setSelectedAssignee} disabled={isLoading}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Assign to..." />
@@ -213,10 +213,10 @@ const Tasks = () => {
                   <SelectContent>
                     <SelectItem value="me">Assign to Me</SelectItem>
                     {members
-                      .filter(m => m.user_id !== currentUserId) // Don't show "Me" twice
+                      .filter(m => m.user_id !== currentUserId)
                       .map((m) => (
                       <SelectItem key={m.user_id} value={m.user_id}>
-                        {m.profiles?.full_name || "User"}
+                        {m.profiles?.full_name || "Unknown User"}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -246,14 +246,12 @@ const Tasks = () => {
                         <span className={`truncate ${task.status === "done" ? "line-through text-muted-foreground" : ""}`}>
                         {task.title}
                         </span>
-                        {/* Show Assignee Name if it's not me */}
                         {task.assignee_id && task.assignee_id !== currentUserId && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                                 <UserIcon className="w-3 h-3" /> 
                                 {task.profiles?.full_name || "Unknown"}
                             </span>
                         )}
-                         {/* Show "Personal" if assigned to self */}
                          {task.assignee_id === currentUserId && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                                 (Personal)

@@ -25,52 +25,29 @@ const Chat = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // FIX: Use state to track workspace ID so it updates dynamically
-  const [workspaceId, setWorkspaceId] = useState<string | null>(
-    localStorage.getItem("activeWorkspaceId")
-  );
-
-  // FIX: Listen for storage changes (Workspace switches)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setWorkspaceId(localStorage.getItem("activeWorkspaceId"));
-    };
-    
-    // Check every second if workspace changed (Simple polling for robustness)
-    const interval = setInterval(handleStorageChange, 1000);
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, []);
+  // FIX 1: Get the active workspace ID
+  const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user);
+        // FIX 2: Load history for THIS workspace only
+        if (workspaceId) {
+          fetchHistory(session.user.id, workspaceId);
+        }
       } else {
         navigate("/auth");
       }
     });
-  }, [navigate]);
-
-  // FIX: Re-fetch history whenever Workspace ID or User changes
-  useEffect(() => {
-    if (user && workspaceId) {
-      fetchHistory(user.id, workspaceId);
-    } else {
-      setMessages([]); // Clear messages if no workspace
-    }
-  }, [user, workspaceId]);
+  }, [navigate, workspaceId]);
 
   const fetchHistory = async (userId: string, wsId: string) => {
     const { data, error } = await supabase
       .from("chat_messages")
       .select("*")
       .eq("user_id", userId)
-      .eq("workspace_id", wsId)
+      .eq("workspace_id", wsId) // Filter history by workspace
       .order("created_at", { ascending: true });
 
     if (!error && data) {
@@ -89,12 +66,11 @@ const Chat = () => {
   };
 
   const sendMessage = async (messageText: string) => {
-    // FIX: Check current state, not just load time variable
-    const currentWorkspaceId = localStorage.getItem("activeWorkspaceId"); 
-    
     if (!messageText.trim() || isLoading) return;
-    if (!currentWorkspaceId) {
-        toast({ title: "No Workspace", description: "Select a workspace first", variant: "destructive" });
+
+    // FIX 3: Block sending if no workspace is selected
+    if (!workspaceId) {
+        toast({ title: "No Workspace", description: "Please select a workspace first.", variant: "destructive" });
         return;
     }
 
@@ -103,14 +79,14 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-      // 1. Save User Message
+      // FIX 4: Save message with workspace_id
       const { error: msgError } = await supabase
         .from("chat_messages")
         .insert({ 
             role: "user", 
             content: userContent, 
             user_id: user.id,
-            workspace_id: currentWorkspaceId 
+            workspace_id: workspaceId 
         });
 
       if (msgError) throw msgError;
@@ -118,31 +94,29 @@ const Chat = () => {
       const tempUserMsg: Message = { role: "user", content: userContent };
       setMessages((prev) => [...prev, tempUserMsg]);
 
-      // 2. Call AI
+      // FIX 5: Send workspace_id to the Backend Function
       const { data, error } = await supabase.functions.invoke("chat", {
         body: { 
             messages: [...messages, tempUserMsg],
             user_id: user.id,
-            workspace_id: currentWorkspaceId // FIX: Pass fresh ID
+            workspace_id: workspaceId // <--- CRITICAL: This tells AI where to put the task
         },
       });
 
       if (error) throw error;
 
       if (data?.reply) {
-        // 3. Save Assistant Reply
         await supabase
           .from("chat_messages")
           .insert({ 
               role: "assistant", 
               content: data.reply, 
               user_id: user.id,
-              workspace_id: currentWorkspaceId 
+              workspace_id: workspaceId
           });
 
         setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
-        
-        if (user) fetchHistory(user.id, currentWorkspaceId);
+        if (user) fetchHistory(user.id, workspaceId);
       }
     } catch (error: any) {
       console.error("Chat error:", error);
@@ -159,11 +133,6 @@ const Chat = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     sendMessage(input);
-  };
-
-  const handleVoiceTranscript = (transcript: string) => {
-    sendMessage(transcript);
-    setShowVoiceRecorder(false);
   };
 
   if (!user) {
@@ -204,12 +173,10 @@ const Chat = () => {
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
               <Sparkles className="w-10 h-10 text-white" />
             </div>
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold">Welcome to USWA</h2>
-              <p className="text-muted-foreground max-w-md">
-                {workspaceId ? "Ask about tasks or documents in this workspace." : "Please select a workspace to start."}
-              </p>
-            </div>
+            <h2 className="text-2xl font-bold">Welcome to USWA</h2>
+            <p className="text-muted-foreground max-w-md">
+              Ask about tasks or documents in this workspace.
+            </p>
           </div>
         ) : (
           <div className="space-y-6 max-w-3xl mx-auto">
@@ -247,7 +214,7 @@ const Chat = () => {
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             placeholder="Type 'Create task: ...' or ask a question" 
-            disabled={isLoading || !workspaceId}
+            disabled={isLoading}
             className="pr-12"
           />
           <Button 
@@ -256,18 +223,17 @@ const Chat = () => {
             size="icon" 
             className="absolute right-14 top-0 h-full text-muted-foreground hover:text-primary"
             onClick={() => setShowVoiceRecorder(true)}
-            disabled={!workspaceId}
           >
             <Mic className="w-5 h-5" />
           </Button>
-          <Button type="submit" disabled={isLoading || !input.trim() || !workspaceId}>
+          <Button type="submit" disabled={isLoading || !input.trim()}>
             <Send className="w-4 h-4" />
           </Button>
         </form>
       </div>
 
       {showVoiceRecorder && (
-        <VoiceRecorder onTranscript={handleVoiceTranscript} onClose={() => setShowVoiceRecorder(false)} />
+        <VoiceRecorder onTranscript={(text) => { setInput(text); sendMessage(text); setShowVoiceRecorder(false); }} onClose={() => setShowVoiceRecorder(false)} />
       )}
     </div>
   );

@@ -13,33 +13,48 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, user_id } = await req.json();
+    // FIX 1: Destructure workspace_id
+    const { messages, user_id, workspace_id } = await req.json();
     const latestMessage = messages[messages.length - 1].content;
 
-    // Setup Clients
     const apiKey = Deno.env.get("GROQ_API_KEY"); 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // --- COMMAND INTERCEPTOR: TASK CREATION ---
-    // If user types "Create task: [title]", we do it manually instead of asking AI.
+    // --- TASK CREATION LOGIC ---
     const taskMatch = latestMessage.match(/^(?:create|add)\s+task[:\s]+(.+)/i);
     
     if (taskMatch) {
       const taskTitle = taskMatch[1].trim();
 
-      if (!user_id) throw new Error("User ID missing for task creation");
+      if (!user_id || !workspace_id) {
+        return new Response(JSON.stringify({ reply: "Error: I need to know which workspace you are in." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-      // 1. Get a Project ID (Default/General)
+      // FIX 2: Find a project INSIDE this specific workspace
+      let projectId;
       const { data: projects } = await supabase
         .from("projects")
         .select("id")
+        .eq("workspace_id", workspace_id) // <--- Filter by Workspace
         .limit(1);
       
-      const projectId = projects?.[0]?.id;
+      if (projects && projects.length > 0) {
+        projectId = projects[0].id;
+      } else {
+        // Create default project if none exists
+        const { data: newProject } = await supabase
+          .from("projects")
+          .insert({ name: "General", workspace_id: workspace_id })
+          .select("id")
+          .single();
+        projectId = newProject?.id;
+      }
 
-      // 2. Insert Task
+      // FIX 3: Insert task
       const { error: insertError } = await supabase
         .from("tasks")
         .insert({
@@ -47,30 +62,31 @@ serve(async (req) => {
           status: "todo",
           priority: "medium",
           creator_id: user_id,
-          project_id: projectId // Can be null if your schema allows, or use the fetched ID
+          project_id: projectId 
         });
 
       if (insertError) {
         console.error("Task Insert Error:", insertError);
-        return new Response(JSON.stringify({ reply: "I tried to create the task, but something went wrong." }), {
+        return new Response(JSON.stringify({ reply: "I failed to create the task. Please check permissions." }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       return new Response(JSON.stringify({ 
-        reply: `✅ I've added "${taskTitle}" to your task list.` 
+        reply: `✅ Added "${taskTitle}" to your workspace task list.` 
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    // ------------------------------------------
-
+    
+    // --- RAG (DOCUMENT SEARCH) LOGIC ---
     if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
-    // Standard RAG Pipeline (for non-command questions)
+    // FIX 4: Search documents ONLY in the current workspace
     const { data: docs } = await supabase
       .from("documents")
       .select("content_text, name")
+      .eq("workspace_id", workspace_id) // <--- Critical Filter
       .order("created_at", { ascending: false })
       .limit(3);
 
@@ -87,8 +103,8 @@ serve(async (req) => {
       ${contextBlock}
       
       Instructions:
-      - Answer questions based on the documents above.
-      - If asked to create a task, tell the user to use the format "Create task: [Title]".
+      - Answer questions based on the documents provided.
+      - Only use documents from the current workspace.
       - Be concise.`
     };
 
