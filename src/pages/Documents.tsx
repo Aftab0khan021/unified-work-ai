@@ -18,18 +18,24 @@ const Documents = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
   const { toast } = useToast();
+  
+  // Get the active workspace ID from local storage
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   const fetchDocs = async () => {
     if (!workspaceId) return;
+    
     const { data, error } = await supabase
       .from("documents")
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
 
-    if (error) console.error(error);
-    else setDocs(data as any || []);
+    if (error) {
+      console.error("Error fetching documents:", error);
+    } else {
+      setDocs(data as any || []);
+    }
   };
 
   useEffect(() => {
@@ -38,21 +44,32 @@ const Documents = () => {
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadingFile || !workspaceId) return;
+
+    // 1. Check if workspace is selected (The Fix)
+    if (!workspaceId) {
+      toast({
+        title: "No Workspace Selected",
+        description: "Please select a team/workspace from the sidebar dropdown first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!uploadingFile) return;
 
     setIsUploading(true);
     try {
       const fileExt = uploadingFile.name.split('.').pop();
       const filePath = `${workspaceId}/${crypto.randomUUID()}.${fileExt}`;
 
-      // 1. Upload to Storage
+      // 2. Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from('workspace_docs')
         .upload(filePath, uploadingFile);
 
       if (uploadError) throw uploadError;
 
-      // 2. Save metadata to DB
+      // 3. Save metadata to DB
       const { error: dbError } = await supabase.from("documents").insert({
         name: uploadingFile.name,
         workspace_id: workspaceId,
@@ -61,13 +78,23 @@ const Documents = () => {
 
       if (dbError) throw dbError;
 
-      // TODO: Trigger Edge Function for OCR/Embedding here (Feature 7)
+      // TODO: Trigger Edge Function for OCR/Embedding here in the future
 
       toast({ title: "Success", description: "File uploaded successfully" });
       setUploadingFile(null);
+      
+      // Reset file input (optional, creates a cleaner UI)
+      const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+
       fetchDocs();
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      console.error("Upload error:", error);
+      toast({ 
+        title: "Error", 
+        description: error.message || "Failed to upload file. Check storage permissions.", 
+        variant: "destructive" 
+      });
     } finally {
       setIsUploading(false);
     }
@@ -105,6 +132,7 @@ const Documents = () => {
         <CardContent>
           <form onSubmit={handleUpload} className="flex gap-4 items-center">
             <Input 
+              id="file-upload"
               type="file" 
               onChange={(e) => setUploadingFile(e.target.files?.[0] || null)}
               className="flex-1"

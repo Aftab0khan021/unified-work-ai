@@ -1,9 +1,9 @@
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarTrigger } from "@/components/ui/sidebar";
-import { MessageSquare, CheckSquare, LogOut, LayoutDashboard } from "lucide-react";
+import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText } from "lucide-react"; // <--- Added FileText import
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkspaceSwitcher } from "./WorkspaceSwitcher"; // <--- Make sure this file exists!
-import { FileText } from "lucide-react";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -14,11 +14,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const items = [
-  { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
-  { title: "My Tasks", url: "/tasks", icon: CheckSquare },
-  { title: "Documents", url: "/documents", icon: FileText }, // Add this line
-];
+    { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
+    { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
+    { title: "My Tasks", url: "/tasks", icon: CheckSquare },
+    { title: "Documents", url: "/documents", icon: FileText }, // <--- Added Documents item
+  ];
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -26,7 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Sidebar Section */}
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
-            {/* 1. Add the Workspace Switcher at the top */}
+            {/* Workspace Switcher at the top */}
             <WorkspaceSwitcher /> 
 
             <SidebarGroup>
