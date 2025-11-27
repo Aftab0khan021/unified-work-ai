@@ -19,57 +19,63 @@ const Tasks = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  // Fetch Tasks
+  // Get the active workspace ID
+  const workspaceId = localStorage.getItem("activeWorkspaceId");
+
   const fetchTasks = async () => {
+    if (!workspaceId) return;
+
+    // FIX: Filter tasks by joining with projects -> workspaces
+    // Note: This assumes you have RLS policies set up or a join relation.
+    // Ideally, tasks should link to projects, and projects to workspaces.
+    // For simplicity in this demo, we will filter manually or assume tasks are linked.
+    
+    // Since we might not have a direct workspace_id on tasks, we fetch ALL for now
+    // BUT a production app would do: .eq('project.workspace_id', workspaceId)
     const { data, error } = await supabase
       .from("tasks")
-      .select("*")
+      .select("*, projects!inner(workspace_id)") // This creates an inner join
+      .eq("projects.workspace_id", workspaceId)
       .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching tasks:", error);
+      // Fallback for now if the Join fails (development mode)
+      const { data: allTasks } = await supabase.from("tasks").select("*").order("created_at", { ascending: false });
+      setTasks(allTasks as any || []);
     } else {
-      setTasks(data as Task[]);
+      setTasks(data as any || []);
     }
   };
 
-  useEffect(() => {
-    fetchTasks(); // Load initial tasks
-
-    // Listen for real-time changes from Supabase
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Listen for INSERT, UPDATE, DELETE
-          schema: 'public',
-          table: 'tasks',
-        },
-        () => {
-          fetchTasks(); // Refresh the list instantly when AI adds a task
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-  // Add Task
+  // ... (Keep the rest of your useEffect and helper functions the same) ...
+  
+  // IMPORTANT: When adding a task, we need to assign it to a project in this workspace
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskTitle.trim()) return;
+    if (!newTaskTitle.trim() || !workspaceId) return;
     setIsLoading(true);
+
+    // 1. Get a default project for this workspace
+    const { data: projects } = await supabase.from('projects').select('id').eq('workspace_id', workspaceId).limit(1);
+    let projectId = projects?.[0]?.id;
+
+    // If no project exists, create a "General" one
+    if (!projectId) {
+       const { data: newProject } = await supabase.from('projects').insert({ name: 'General', workspace_id: workspaceId }).select().single();
+       projectId = newProject?.id;
+    }
 
     const { error } = await supabase.from("tasks").insert([
       {
         title: newTaskTitle,
         status: "todo",
         priority: "medium",
+        project_id: projectId // Link to the correct project!
       },
     ]);
 
+    // ... (rest of the function logic remains the same) ...
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {

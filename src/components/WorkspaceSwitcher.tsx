@@ -11,8 +11,12 @@ type Workspace = {
 };
 
 export function WorkspaceSwitcher() {
+  // FIX 1: Initialize state from localStorage so it remembers after reload
+  const [currentWorkspace, setCurrentWorkspace] = useState<string | null>(
+    localStorage.getItem("activeWorkspaceId")
+  );
+  
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [currentWorkspace, setCurrentWorkspace] = useState<string | null>(null);
 
   const fetchWorkspaces = async () => {
     const { data, error } = await supabase
@@ -24,7 +28,6 @@ export function WorkspaceSwitcher() {
       `);
 
     if (!error && data) {
-      // Flatten the structure slightly
       const formatted = data.map((w: any) => ({
         id: w.id,
         name: w.name,
@@ -32,11 +35,17 @@ export function WorkspaceSwitcher() {
       }));
       setWorkspaces(formatted);
       
-      // Set default if none selected
-      if (formatted.length > 0 && !currentWorkspace) {
-        setCurrentWorkspace(formatted[0].id);
-        // In a real app, you'd save this to localStorage or Context
-        localStorage.setItem("activeWorkspaceId", formatted[0].id);
+      // FIX 2: Logic to handle default selection safely
+      const storedId = localStorage.getItem("activeWorkspaceId");
+      const isValidStored = formatted.find(w => w.id === storedId);
+
+      if (isValidStored) {
+        setCurrentWorkspace(storedId);
+      } else if (formatted.length > 0) {
+        // If no valid stored ID, default to the first one
+        const firstId = formatted[0].id;
+        setCurrentWorkspace(firstId);
+        localStorage.setItem("activeWorkspaceId", firstId);
       }
     }
   };
@@ -57,7 +66,8 @@ export function WorkspaceSwitcher() {
         onValueChange={(val) => {
           setCurrentWorkspace(val);
           localStorage.setItem("activeWorkspaceId", val);
-          window.location.reload(); // Simple way to refresh data for new workspace
+          // Force a reload so other components pick up the new ID
+          window.location.reload(); 
         }}
       >
         <SelectTrigger className="w-full">
