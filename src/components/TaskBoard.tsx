@@ -48,10 +48,15 @@ export function TaskBoard() {
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   const fetchTasks = async () => {
-    if (!workspaceId) return;
+    // FIX: Handle missing workspace ID by stopping loading immediately
+    if (!workspaceId) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      // FIX: Filter by workspace using Inner Join on Projects
+      setIsLoading(true);
+      // Filter by workspace using Inner Join on Projects
       const { data, error } = await supabase
         .from("tasks")
         .select(`
@@ -65,7 +70,7 @@ export function TaskBoard() {
       setTasks(data as any || []);
     } catch (error: any) {
       console.error("Board fetch error:", error);
-      toast({ title: "Error", description: "Failed to load tasks", variant: "destructive" });
+      // Silent fail for UX, or show toast if critical
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +79,6 @@ export function TaskBoard() {
   useEffect(() => {
     fetchTasks();
     
-    // Subscribe to real-time updates
     const channel = supabase
       .channel('board-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
@@ -86,7 +90,6 @@ export function TaskBoard() {
   }, [workspaceId]);
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
-    // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
 
     const { error } = await supabase
@@ -96,7 +99,7 @@ export function TaskBoard() {
 
     if (error) {
       toast({ title: "Error", description: "Failed to update task", variant: "destructive" });
-      fetchTasks(); // Revert
+      fetchTasks();
     }
   };
 
@@ -124,6 +127,8 @@ export function TaskBoard() {
   };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
+
+  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select or create a workspace to view tasks.</div>;
 
   return (
     <div className="h-full flex gap-4 overflow-x-auto pb-4">

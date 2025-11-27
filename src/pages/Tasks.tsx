@@ -3,44 +3,88 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, CheckCircle2, Circle, Trash2, Loader2 } from "lucide-react";
+import { Plus, CheckCircle2, Circle, Trash2, Loader2, User as UserIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaskBoard } from "@/components/TaskBoard";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type Task = {
   id: string;
   title: string;
   status: "todo" | "in_progress" | "review" | "done";
   priority: "low" | "medium" | "high" | "urgent";
+  assignee_id?: string; // New field
+  profiles?: { full_name: string } | null; // For displaying assignee name (joined)
+};
+
+type Member = {
+  user_id: string;
+  profiles: {
+    full_name: string;
+  };
 };
 
 const Tasks = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [selectedAssignee, setSelectedAssignee] = useState<string>("me"); // Default to self
   const [isLoading, setIsLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const { toast } = useToast();
 
   // Get the active workspace ID
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
+  // 1. Fetch Current User
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setCurrentUserId(data.user.id);
+    });
+  }, []);
+
+  // 2. Fetch Workspace Members (For the dropdown)
+  useEffect(() => {
+    const fetchMembers = async () => {
+      if (!workspaceId) return;
+      const { data } = await supabase
+        .from("workspace_members")
+        .select("user_id, profiles(full_name)")
+        .eq("workspace_id", workspaceId);
+      
+      if (data) setMembers(data as any);
+    };
+    fetchMembers();
+  }, [workspaceId]);
+
+  // 3. Fetch Tasks (Filtered by RLS automatically now)
   const fetchTasks = async () => {
     if (!workspaceId) return;
 
     try {
-      // FIX: Filter by workspace and remove "fetch all" fallback
+      // We join 'profiles' on assignee_id to get the name of the person assigned
       const { data, error } = await supabase
         .from("tasks")
-        .select("*, projects!inner(workspace_id)")
+        .select(`
+          *, 
+          projects!inner(workspace_id),
+          profiles:assignee_id(full_name)
+        `)
         .eq("projects.workspace_id", workspaceId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      
       setTasks((data as any) || []);
     } catch (error: any) {
       console.error("Error fetching tasks:", error);
-      // We do NOT set fallback tasks here anymore to prevent data leak between workspaces
       setTasks([]);
     }
   };
@@ -48,24 +92,22 @@ const Tasks = () => {
   useEffect(() => {
     fetchTasks();
 
-    // Realtime Listener for List View
     const channel = supabase
       .channel('tasks-list-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
-        fetchTasks();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [workspaceId]);
 
+  // 4. Add Task with Assignee
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle.trim() || !workspaceId) return;
     setIsLoading(true);
 
     try {
-      // 1. Get a default project for this workspace
+      // Get default project
       const { data: projects } = await supabase
         .from("projects")
         .select("id")
@@ -74,7 +116,6 @@ const Tasks = () => {
       
       let projectId = projects?.[0]?.id;
 
-      // If no project exists, create a "General" one
       if (!projectId) {
         const { data: newProject } = await supabase
           .from("projects")
@@ -84,26 +125,28 @@ const Tasks = () => {
         projectId = newProject?.id;
       }
 
+      // Determine assignee (If "me", use current user id)
+      const finalAssignee = selectedAssignee === "me" ? currentUserId : selectedAssignee;
+
       const { error } = await supabase.from("tasks").insert([
         {
           title: newTaskTitle,
           status: "todo",
           priority: "medium",
           project_id: projectId,
+          creator_id: currentUserId,
+          assignee_id: finalAssignee
         },
       ]);
 
       if (error) throw error;
 
       setNewTaskTitle("");
+      setSelectedAssignee("me"); // Reset
       fetchTasks();
       toast({ title: "Success", description: "Task added!" });
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -113,11 +156,7 @@ const Tasks = () => {
     const newStatus = task.status === "done" ? "todo" : "done";
     setTasks(tasks.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)));
 
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: newStatus })
-      .eq("id", task.id);
-
+    const { error } = await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
     if (error) {
       fetchTasks();
       toast({ title: "Error", description: "Update failed" });
@@ -141,10 +180,10 @@ const Tasks = () => {
         </h1>
       </div>
 
-      <Tabs defaultValue="board" className="flex-1 flex flex-col">
+      <Tabs defaultValue="list" className="flex-1 flex flex-col">
         <TabsList>
-          <TabsTrigger value="board">Board</TabsTrigger>
           <TabsTrigger value="list">List</TabsTrigger>
+          <TabsTrigger value="board">Board</TabsTrigger>
         </TabsList>
 
         <TabsContent value="board" className="flex-1 mt-4 h-full overflow-hidden">
@@ -157,13 +196,32 @@ const Tasks = () => {
               <CardTitle className="text-lg">Add New Task</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={addTask} className="flex gap-2">
+              <form onSubmit={addTask} className="flex flex-col sm:flex-row gap-2">
                 <Input
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                   placeholder="What needs to be done?"
                   disabled={isLoading}
+                  className="flex-1"
                 />
+                
+                {/* Assignee Dropdown */}
+                <Select value={selectedAssignee} onValueChange={setSelectedAssignee} disabled={isLoading}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Assign to..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="me">Assign to Me</SelectItem>
+                    {members
+                      .filter(m => m.user_id !== currentUserId) // Don't show "Me" twice
+                      .map((m) => (
+                      <SelectItem key={m.user_id} value={m.user_id}>
+                        {m.profiles?.full_name || "User"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <Button type="submit" disabled={isLoading || !newTaskTitle}>
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />} 
                   Add
@@ -184,10 +242,26 @@ const Tasks = () => {
                         <Circle className="w-5 h-5 text-muted-foreground" />
                       )}
                     </button>
-                    <span className={`truncate ${task.status === "done" ? "line-through text-muted-foreground" : ""}`}>
-                      {task.title}
-                    </span>
+                    <div className="flex flex-col">
+                        <span className={`truncate ${task.status === "done" ? "line-through text-muted-foreground" : ""}`}>
+                        {task.title}
+                        </span>
+                        {/* Show Assignee Name if it's not me */}
+                        {task.assignee_id && task.assignee_id !== currentUserId && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                <UserIcon className="w-3 h-3" /> 
+                                {task.profiles?.full_name || "Unknown"}
+                            </span>
+                        )}
+                         {/* Show "Personal" if assigned to self */}
+                         {task.assignee_id === currentUserId && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                (Personal)
+                            </span>
+                        )}
+                    </div>
                   </div>
+                  
                   <Button variant="ghost" size="icon" onClick={() => deleteTask(task.id)}>
                     <Trash2 className="w-4 h-4 text-destructive opacity-70 hover:opacity-100" />
                   </Button>
@@ -196,7 +270,7 @@ const Tasks = () => {
             ))}
             {tasks.length === 0 && (
               <div className="text-center text-muted-foreground py-8">
-                No tasks found in this workspace.
+                No tasks found (Note: You only see tasks created by or assigned to you).
               </div>
             )}
           </div>
