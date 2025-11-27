@@ -9,13 +9,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    // 1. Clear Local Storage so the next user doesn't inherit this workspace
+    // 1. CRITICAL FIX: Clear the active workspace ID
+    // This prevents User B from seeing User A's workspace data
     localStorage.removeItem("activeWorkspaceId");
 
-    // 2. Sign out from Supabase
+    // 2. Sign out
     await supabase.auth.signOut();
-
-    // 3. Redirect to Auth page
     navigate("/auth");
   };
 
@@ -33,7 +32,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Sidebar Section */}
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
-            {/* Workspace Switcher at the top */}
             <WorkspaceSwitcher /> 
 
             <SidebarGroup>

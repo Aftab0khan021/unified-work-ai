@@ -18,24 +18,22 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
     setIsLoading(true);
 
     try {
-      // 1. Get Current User
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("You must be logged in");
+      if (!user) throw new Error("Not authenticated");
 
-      // 2. Create the workspace
+      // 1. Create the workspace
       const { data: workspace, error: wsError } = await supabase
         .from("workspaces")
         .insert({ 
-            name: name,
-            owner_id: user.id // Explicitly set owner
+          name,
+          owner_id: user.id // Explicitly set owner
         })
         .select()
         .single();
 
       if (wsError) throw wsError;
 
-      // 3. Add the current user as 'admin'
-      // The SQL policy we just ran allows this because user.id matches owner_id
+      // 2. Add the current user as 'admin'
       const { error: memberError } = await supabase
         .from("workspace_members")
         .insert({
@@ -45,25 +43,31 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
         });
 
       if (memberError) {
-         // If member creation fails, we should probably delete the workspace to clean up
+         // If member add fails, cleanup workspace
          await supabase.from("workspaces").delete().eq("id", workspace.id);
          throw memberError;
       }
+
+      // 3. Create a default "General" project (Required for Tasks to work!)
+      await supabase.from("projects").insert({
+        name: "General",
+        workspace_id: workspace.id,
+        status: "active"
+      });
 
       toast({ title: "Success", description: "Workspace created!" });
       setIsOpen(false);
       setName("");
       
-      // 4. Force refresh to show the new workspace
-      onWorkspaceCreated(); 
-      
-      // 5. Auto-select the new workspace
+      // 4. Select the new workspace automatically
       localStorage.setItem("activeWorkspaceId", workspace.id);
-      window.location.reload();
+      
+      // 5. Refresh to show new data
+      window.location.reload(); 
 
     } catch (error: any) {
       console.error("Creation Error:", error);
-      toast({ title: "Error", description: error.message || "Failed to create workspace", variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
