@@ -14,36 +14,57 @@ serve(async (req) => {
 
   try {
     const { messages } = await req.json();
-    const apiKey = Deno.env.get("GROQ_API_KEY");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const latestMessage = messages[messages.length - 1].content;
+
+    // 1. Setup Clients
+    const apiKey = Deno.env.get("GROQ_API_KEY"); // Using Groq for fast Llama 3 responses
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
-    const authHeader = req.headers.get('Authorization')!;
-    const supabase = createClient(supabaseUrl!, supabaseAnonKey!, { 
-      global: { headers: { Authorization: authHeader } } 
-    });
+    // 2. RAG: Search for relevant documents
+    // Note: Since we are using MOCK embeddings (random numbers), the search results 
+    // won't be semantically accurate yet, but the *pipeline* is real.
+    // In production, you'd generate a real embedding for 'latestMessage' here first.
+    
+    // For this MVP, we just fetch the 3 most recent documents to give the AI context.
+    const { data: docs, error: searchError } = await supabase
+      .from("documents")
+      .select("content_text, name")
+      .order("created_at", { ascending: false })
+      .limit(3);
 
-    const tools = [
-      {
-        type: "function",
-        function: {
-          name: "create_task",
-          description: "Create a new task",
-          parameters: {
-            type: "object",
-            properties: {
-              title: { type: "string" },
-              priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-            },
-            required: ["title"],
-          },
-        },
-      },
-    ];
+    if (searchError) {
+      console.error("Vector search error:", searchError);
+    }
 
-    // CALLING THE NEW MODEL HERE
+    // 3. Construct Context Block
+    let contextBlock = "";
+    if (docs && docs.length > 0) {
+      contextBlock = "\n\nRELEVANT WORKSPACE DOCUMENTS:\n" + 
+        docs.map(d => `--- Document: ${d.name} ---\n${d.content_text.substring(0, 500)}...`).join("\n\n");
+    }
+
+    // 4. Build System Prompt
+    const systemMessage = {
+      role: "system",
+      content: `You are USWA, an intelligent work assistant. 
+      
+      User Context:
+      - Today is ${new Date().toLocaleDateString()}.
+      ${contextBlock}
+      
+      Instructions:
+      - If the user asks about a document mentioned above, answer using that information.
+      - If the documents are not relevant, answer from your general knowledge.
+      - Be concise and helpful.`
+    };
+
+    const finalMessages = [systemMessage, ...messages];
+
+    // 5. Call LLM (Groq)
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -51,63 +72,21 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile", // <--- UPDATED
-        messages: [
-          {
-            role: "system",
-            content: `You are USWA, a helpful work assistant. Today is ${new Date().toLocaleDateString()}.`
-          },
-          ...messages
-        ],
-        tools: tools,
-        tool_choice: "auto",
+        model: "llama-3.3-70b-versatile",
+        messages: finalMessages,
+        temperature: 0.2, // Lower temperature for more factual answers based on context
       }),
     });
 
     const data = await response.json();
     if (data.error) throw new Error(`Groq Error: ${data.error.message}`);
 
-    const aiMessage = data.choices[0].message;
-
-    if (aiMessage.tool_calls) {
-      const toolCall = aiMessage.tool_calls[0];
-      if (toolCall.function.name === "create_task") {
-        const args = JSON.parse(toolCall.function.arguments);
-        const { error } = await supabase.from("tasks").insert({
-          title: args.title,
-          priority: args.priority || "medium",
-          status: "todo"
-        });
-
-        if (error) throw error;
-
-        const functionResponse = {
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: JSON.stringify({ success: true, message: "Task created." }),
-        };
-
-        const secondResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile", // <--- UPDATED
-            messages: [...messages, aiMessage, functionResponse],
-          }),
-        });
-        
-        const secondData = await secondResponse.json();
-        return new Response(JSON.stringify({ reply: secondData.choices[0].message.content }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    return new Response(JSON.stringify({ reply: aiMessage.content }), {
+    return new Response(JSON.stringify({ reply: data.choices[0].message.content }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error: any) {
+    console.error("Chat Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

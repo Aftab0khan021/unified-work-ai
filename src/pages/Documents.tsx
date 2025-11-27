@@ -45,7 +45,7 @@ const Documents = () => {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 1. Check if workspace is selected (The Fix)
+    // 1. Check if workspace is selected
     if (!workspaceId) {
       toast({
         title: "No Workspace Selected",
@@ -69,21 +69,35 @@ const Documents = () => {
 
       if (uploadError) throw uploadError;
 
-      // 3. Save metadata to DB
-      const { error: dbError } = await supabase.from("documents").insert({
+      // 3. Save metadata to DB and get the ID (Added .select().single())
+      const { data: savedDoc, error: dbError } = await supabase.from("documents").insert({
         name: uploadingFile.name,
         workspace_id: workspaceId,
         file_path: filePath
-      });
+      }).select().single();
 
       if (dbError) throw dbError;
 
-      // TODO: Trigger Edge Function for OCR/Embedding here in the future
+      // 4. Trigger Edge Function for AI Processing (New Step)
+      toast({ title: "Processing", description: "Generating AI embeddings..." });
+      
+      const { error: processError } = await supabase.functions.invoke("process-doc", {
+        body: { 
+          document_id: savedDoc.id, 
+          file_path: filePath 
+        }
+      });
 
-      toast({ title: "Success", description: "File uploaded successfully" });
+      if (processError) {
+        console.error("Processing error:", processError);
+        toast({ title: "Warning", description: "File saved, but AI processing failed.", variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: "File processed for AI search!" });
+      }
+
       setUploadingFile(null);
       
-      // Reset file input (optional, creates a cleaner UI)
+      // Reset file input
       const fileInput = document.getElementById('file-upload') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
 
