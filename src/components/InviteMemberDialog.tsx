@@ -17,26 +17,32 @@ export function InviteMemberDialog({ workspaceId }: { workspaceId: string }) {
     e.preventDefault();
     setIsLoading(true);
 
-    // NOTE: in a real app, you'd use an Edge Function here to look up user by email
-    // For now, we will just simulate a success or try to insert if you know the UUID
-    // Since looking up user ID by email is restricted on the client side for security.
-    
     try {
-       // Call our Edge Function (we will create this next)
+       // Call the Edge Function
        const { data, error } = await supabase.functions.invoke('invite-user', {
          body: { email, workspaceId }
        });
 
-       if (error) throw error;
+       if (error) {
+         // Supabase function error (e.g., 500 or network issue)
+         throw new Error(error.message || "Failed to call invite function");
+       }
 
-       toast({ title: "Success", description: "Invitation sent!" });
+       // Check for functional errors returned in the JSON body (e.g. "User not found")
+       if (data?.error) {
+         throw new Error(data.error);
+       }
+
+       toast({ title: "Success", description: data.message || "Invitation sent!" });
        setIsOpen(false);
        setEmail("");
     } catch (error: any) {
-       // For demo purposes, since we haven't deployed the function yet:
+       console.error("Invite Error:", error);
+       // FIX: Show the ACTUAL error message
        toast({ 
-         title: "Feature Pending", 
-         description: "We need to deploy the 'invite-user' function first. (See Step 4)" 
+         title: "Invitation Failed", 
+         description: error.message || "An unexpected error occurred.",
+         variant: "destructive" 
        });
     } finally {
       setIsLoading(false);

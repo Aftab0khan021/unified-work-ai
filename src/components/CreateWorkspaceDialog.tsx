@@ -18,32 +18,52 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
     setIsLoading(true);
 
     try {
-      // 1. Create the workspace
+      // 1. Get Current User
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("You must be logged in");
+
+      // 2. Create the workspace
       const { data: workspace, error: wsError } = await supabase
         .from("workspaces")
-        .insert({ name })
+        .insert({ 
+            name: name,
+            owner_id: user.id // Explicitly set owner
+        })
         .select()
         .single();
 
       if (wsError) throw wsError;
 
-      // 2. Add the current user as 'admin' (This might be handled by a trigger, but let's be explicit)
+      // 3. Add the current user as 'admin'
+      // The SQL policy we just ran allows this because user.id matches owner_id
       const { error: memberError } = await supabase
         .from("workspace_members")
         .insert({
           workspace_id: workspace.id,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
+          user_id: user.id,
           role: "admin"
         });
 
-      if (memberError) throw memberError;
+      if (memberError) {
+         // If member creation fails, we should probably delete the workspace to clean up
+         await supabase.from("workspaces").delete().eq("id", workspace.id);
+         throw memberError;
+      }
 
       toast({ title: "Success", description: "Workspace created!" });
       setIsOpen(false);
       setName("");
-      onWorkspaceCreated(); // Refresh parent list
+      
+      // 4. Force refresh to show the new workspace
+      onWorkspaceCreated(); 
+      
+      // 5. Auto-select the new workspace
+      localStorage.setItem("activeWorkspaceId", workspace.id);
+      window.location.reload();
+
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      console.error("Creation Error:", error);
+      toast({ title: "Error", description: error.message || "Failed to create workspace", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }

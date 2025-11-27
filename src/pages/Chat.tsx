@@ -41,13 +41,13 @@ const Chat = () => {
     });
   }, [navigate, workspaceId]);
 
-  // FIX: Fetch history ONLY for the current workspace
+  // Fetch history ONLY for the current workspace
   const fetchHistory = async (userId: string, wsId: string) => {
     const { data, error } = await supabase
       .from("chat_messages")
       .select("*")
       .eq("user_id", userId)
-      .eq("workspace_id", wsId) // <--- Filter by Workspace
+      .eq("workspace_id", wsId)
       .order("created_at", { ascending: true });
 
     if (!error && data) {
@@ -60,7 +60,13 @@ const Chat = () => {
   }, [messages]);
 
   const handleSignOut = async () => {
+    // 1. Clear Local Storage so the next user doesn't inherit this workspace
+    localStorage.removeItem("activeWorkspaceId");
+
+    // 2. Sign out from Supabase
     await supabase.auth.signOut();
+
+    // 3. Redirect
     navigate("/auth");
   };
 
@@ -76,14 +82,14 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-      // 1. Save User Message (With Workspace ID) [FIX]
+      // 1. Save User Message (With Workspace ID)
       const { error: msgError } = await supabase
         .from("chat_messages")
         .insert({ 
             role: "user", 
             content: userContent, 
             user_id: user.id,
-            workspace_id: workspaceId // <--- Insert with Workspace ID
+            workspace_id: workspaceId 
         });
 
       if (msgError) throw msgError;
@@ -103,14 +109,14 @@ const Chat = () => {
       if (error) throw error;
 
       if (data?.reply) {
-        // 3. Save Assistant Reply (With Workspace ID) [FIX]
+        // 3. Save Assistant Reply (With Workspace ID)
         await supabase
           .from("chat_messages")
           .insert({ 
               role: "assistant", 
               content: data.reply, 
               user_id: user.id,
-              workspace_id: workspaceId // <--- Insert with Workspace ID
+              workspace_id: workspaceId 
           });
 
         setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);

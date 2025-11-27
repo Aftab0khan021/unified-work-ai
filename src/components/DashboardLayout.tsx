@@ -1,5 +1,5 @@
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarTrigger } from "@/components/ui/sidebar";
-import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText } from "lucide-react"; // <--- Added FileText import
+import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText, Settings } from "lucide-react"; 
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
@@ -9,7 +9,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
+    // 1. Clear Local Storage so the next user doesn't inherit this workspace
+    localStorage.removeItem("activeWorkspaceId");
+
+    // 2. Sign out from Supabase
     await supabase.auth.signOut();
+
+    // 3. Redirect to Auth page
     navigate("/auth");
   };
 
@@ -17,7 +23,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
     { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
     { title: "My Tasks", url: "/tasks", icon: CheckSquare },
-    { title: "Documents", url: "/documents", icon: FileText }, // <--- Added Documents item
+    { title: "Documents", url: "/documents", icon: FileText },
+    { title: "Settings", url: "/settings", icon: Settings },
   ];
 
   return (
