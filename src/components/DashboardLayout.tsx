@@ -2,6 +2,7 @@ import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupCon
 import { MessageSquare, CheckSquare, LogOut, LayoutDashboard } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher"; // <--- Make sure this file exists!
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -21,11 +22,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex h-screen w-full overflow-hidden bg-background">
-        {/* Sidebar Section - Added min-w to prevent squishing */}
+        {/* Sidebar Section */}
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
+            {/* 1. Add the Workspace Switcher at the top */}
+            <WorkspaceSwitcher /> 
+
             <SidebarGroup>
-              <SidebarGroupLabel>USWA Workspace</SidebarGroupLabel>
+              <SidebarGroupLabel>Menu</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {items.map((item) => (
@@ -58,7 +62,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         
         {/* Main Content Section */}
         <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-          {/* Top Header with Trigger */}
           <header className="flex items-center h-14 border-b px-4 bg-background shrink-0">
             <SidebarTrigger />
             <h2 className="ml-4 font-semibold">
@@ -66,7 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h2>
           </header>
 
-          {/* Scrollable Page Content */}
           <main className="flex-1 overflow-auto p-6">
             {children}
           </main>
