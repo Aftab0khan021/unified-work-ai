@@ -18,10 +18,9 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- STEP 1: Turn User Question into a Vector (NEW MODEL) ---
+    // --- STEP 1: Turn User Question into a Vector (STABLE MODEL) ---
     const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
     
-    // Using BAAI/bge-small-en-v1.5 to match the document embeddings
     const embeddingResponse = await fetch(
       "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
@@ -41,6 +40,7 @@ serve(async (req) => {
     
     const embeddingResult = await embeddingResponse.json();
     
+    // Unwrap nested response
     let queryVector = embeddingResult;
     if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
         queryVector = embeddingResult[0];

@@ -33,17 +33,16 @@ serve(async (req) => {
        textContent = `Document: ${file_path.split('/').pop()}`; 
     }
 
-    // Limit text length
+    // Limit text length to prevent 413/Payload Too Large errors
     const chunkToEmbed = textContent.substring(0, 3000); 
 
-    // 3. Generate Embedding (NEW MODEL)
+    // 3. Generate Embedding (STABLE MODEL)
     const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
     if (!hfKey) throw new Error("Missing HUGGINGFACE_API_KEY");
 
     console.log(`Generating embedding for: ${file_path}`);
 
     const response = await fetch(
-      // We switched to BAAI/bge-small-en-v1.5 which is a dedicated embedding model
       "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
         method: "POST",
@@ -51,8 +50,9 @@ serve(async (req) => {
           Authorization: `Bearer ${hfKey}`,
           "Content-Type": "application/json",
         },
+        // CRITICAL FIX: Send as an array to satisfy the router's pipeline
         body: JSON.stringify({
-          inputs: [chunkToEmbed], // Send as array
+          inputs: [chunkToEmbed], 
           options: { wait_for_model: true }
         }),
       }
@@ -65,9 +65,8 @@ serve(async (req) => {
 
     const embeddingResult = await response.json();
 
-    // 4. Handle Response Format
+    // 4. Handle Response Format (Unwrap if nested)
     let finalEmbedding = embeddingResult;
-    // Unwrap nested array if necessary [[0.1, 0.2...]]
     if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
         finalEmbedding = embeddingResult[0];
     }
