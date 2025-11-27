@@ -13,58 +13,85 @@ serve(async (req) => {
   }
 
   try {
-    const { messages } = await req.json();
+    const { messages, user_id } = await req.json();
     const latestMessage = messages[messages.length - 1].content;
 
-    // 1. Setup Clients
-    const apiKey = Deno.env.get("GROQ_API_KEY"); // Using Groq for fast Llama 3 responses
+    // Setup Clients
+    const apiKey = Deno.env.get("GROQ_API_KEY"); 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // --- COMMAND INTERCEPTOR: TASK CREATION ---
+    // If user types "Create task: [title]", we do it manually instead of asking AI.
+    const taskMatch = latestMessage.match(/^(?:create|add)\s+task[:\s]+(.+)/i);
+    
+    if (taskMatch) {
+      const taskTitle = taskMatch[1].trim();
+
+      if (!user_id) throw new Error("User ID missing for task creation");
+
+      // 1. Get a Project ID (Default/General)
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id")
+        .limit(1);
+      
+      const projectId = projects?.[0]?.id;
+
+      // 2. Insert Task
+      const { error: insertError } = await supabase
+        .from("tasks")
+        .insert({
+          title: taskTitle,
+          status: "todo",
+          priority: "medium",
+          creator_id: user_id,
+          project_id: projectId // Can be null if your schema allows, or use the fetched ID
+        });
+
+      if (insertError) {
+        console.error("Task Insert Error:", insertError);
+        return new Response(JSON.stringify({ reply: "I tried to create the task, but something went wrong." }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ 
+        reply: `✅ I've added "${taskTitle}" to your task list.` 
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // ------------------------------------------
+
     if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
-    // 2. RAG: Search for relevant documents
-    // Note: Since we are using MOCK embeddings (random numbers), the search results 
-    // won't be semantically accurate yet, but the *pipeline* is real.
-    // In production, you'd generate a real embedding for 'latestMessage' here first.
-    
-    // For this MVP, we just fetch the 3 most recent documents to give the AI context.
-    const { data: docs, error: searchError } = await supabase
+    // Standard RAG Pipeline (for non-command questions)
+    const { data: docs } = await supabase
       .from("documents")
       .select("content_text, name")
       .order("created_at", { ascending: false })
       .limit(3);
 
-    if (searchError) {
-      console.error("Vector search error:", searchError);
-    }
-
-    // 3. Construct Context Block
     let contextBlock = "";
     if (docs && docs.length > 0) {
-      contextBlock = "\n\nRELEVANT WORKSPACE DOCUMENTS:\n" + 
-        docs.map(d => `--- Document: ${d.name} ---\n${d.content_text.substring(0, 500)}...`).join("\n\n");
+      contextBlock = "\n\nRELEVANT DOCUMENTS:\n" + 
+        docs.map((d: any) => `--- ${d.name} ---\n${d.content_text.substring(0, 500)}...`).join("\n\n");
     }
 
-    // 4. Build System Prompt
     const systemMessage = {
       role: "system",
       content: `You are USWA, an intelligent work assistant. 
-      
-      User Context:
-      - Today is ${new Date().toLocaleDateString()}.
+      Today is ${new Date().toLocaleDateString()}.
       ${contextBlock}
       
       Instructions:
-      - If the user asks about a document mentioned above, answer using that information.
-      - If the documents are not relevant, answer from your general knowledge.
-      - Be concise and helpful.`
+      - Answer questions based on the documents above.
+      - If asked to create a task, tell the user to use the format "Create task: [Title]".
+      - Be concise.`
     };
 
-    const finalMessages = [systemMessage, ...messages];
-
-    // 5. Call LLM (Groq)
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -73,8 +100,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: finalMessages,
-        temperature: 0.2, // Lower temperature for more factual answers based on context
+        messages: [systemMessage, ...messages],
+        temperature: 0.2,
       }),
     });
 

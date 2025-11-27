@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -44,18 +44,31 @@ export function TaskBoard() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchTasks = async () => {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("created_at", { ascending: false });
+  // FIX: Get workspace ID
+  const workspaceId = localStorage.getItem("activeWorkspaceId");
 
-    if (error) {
-      toast({ title: "Error", description: "Failed to load tasks", variant: "destructive" });
-    } else {
+  const fetchTasks = async () => {
+    if (!workspaceId) return;
+
+    try {
+      // FIX: Filter by workspace using Inner Join on Projects
+      const { data, error } = await supabase
+        .from("tasks")
+        .select(`
+          *,
+          projects!inner(workspace_id)
+        `)
+        .eq("projects.workspace_id", workspaceId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
       setTasks(data as any || []);
+    } catch (error: any) {
+      console.error("Board fetch error:", error);
+      toast({ title: "Error", description: "Failed to load tasks", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -63,12 +76,14 @@ export function TaskBoard() {
     
     // Subscribe to real-time updates
     const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
+      .channel('board-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTasks();
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [workspaceId]);
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     // Optimistic update
@@ -164,14 +179,6 @@ export function TaskBoard() {
               ))}
             </div>
           </ScrollArea>
-          
-          {col.id === 'todo' && (
-            <div className="p-2">
-              <Button variant="ghost" className="w-full justify-start text-muted-foreground text-sm">
-                <Plus className="mr-2 h-4 w-4" /> Add Task
-              </Button>
-            </div>
-          )}
         </div>
       ))}
     </div>

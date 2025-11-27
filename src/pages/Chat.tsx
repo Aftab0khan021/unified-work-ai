@@ -9,8 +9,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type Message = {
+  id?: string;
   role: "user" | "assistant";
   content: string;
+  created_at?: string;
 };
 
 const Chat = () => {
@@ -23,25 +25,35 @@ const Chat = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-      } else {
-        navigate("/auth");
-      }
-    });
+  // Get active Workspace ID
+  const workspaceId = localStorage.getItem("activeWorkspaceId");
 
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user);
+        if (workspaceId) {
+          fetchHistory(session.user.id, workspaceId);
+        }
       } else {
         navigate("/auth");
       }
     });
+  }, [navigate, workspaceId]);
 
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+  // FIX: Fetch history ONLY for the current workspace
+  const fetchHistory = async (userId: string, wsId: string) => {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("workspace_id", wsId) // <--- Filter by Workspace
+      .order("created_at", { ascending: true });
+
+    if (!error && data) {
+      setMessages(data as any);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,27 +66,56 @@ const Chat = () => {
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
+    if (!workspaceId) {
+        toast({ title: "No Workspace", description: "Select a workspace first", variant: "destructive" });
+        return;
+    }
 
-    const userMessage: Message = { role: "user", content: messageText };
-    setMessages((prev) => [...prev, userMessage]);
+    const userContent = messageText;
     setInput("");
     setIsLoading(true);
 
     try {
+      // 1. Save User Message (With Workspace ID) [FIX]
+      const { error: msgError } = await supabase
+        .from("chat_messages")
+        .insert({ 
+            role: "user", 
+            content: userContent, 
+            user_id: user.id,
+            workspace_id: workspaceId // <--- Insert with Workspace ID
+        });
+
+      if (msgError) throw msgError;
+
+      const tempUserMsg: Message = { role: "user", content: userContent };
+      setMessages((prev) => [...prev, tempUserMsg]);
+
+      // 2. Call AI (Pass workspace ID)
       const { data, error } = await supabase.functions.invoke("chat", {
         body: { 
-          messages: [...messages, userMessage],
+            messages: [...messages, tempUserMsg],
+            user_id: user.id,
+            workspace_id: workspaceId
         },
       });
 
       if (error) throw error;
 
       if (data?.reply) {
-        const assistantMessage: Message = {
-          role: "assistant",
-          content: data.reply,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
+        // 3. Save Assistant Reply (With Workspace ID) [FIX]
+        await supabase
+          .from("chat_messages")
+          .insert({ 
+              role: "assistant", 
+              content: data.reply, 
+              user_id: user.id,
+              workspace_id: workspaceId // <--- Insert with Workspace ID
+          });
+
+        setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+        
+        if (user) fetchHistory(user.id, workspaceId);
       }
     } catch (error: any) {
       console.error("Chat error:", error);
@@ -93,11 +134,6 @@ const Chat = () => {
     sendMessage(input);
   };
 
-  const handleVoiceTranscript = (transcript: string) => {
-    sendMessage(transcript);
-    setShowVoiceRecorder(false);
-  };
-
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -108,8 +144,7 @@ const Chat = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm">
+      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Sparkles className="w-6 h-6 text-primary" />
@@ -118,13 +153,11 @@ const Chat = () => {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+             <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
               <Avatar className="w-8 h-8">
-                <AvatarFallback>
-                  <User className="w-4 h-4" />
-                </AvatarFallback>
+                <AvatarFallback><User className="w-4 h-4" /></AvatarFallback>
               </Avatar>
-              <span className="hidden sm:inline">{user.email}</span>
+              <span>{user.email}</span>
             </div>
             <Button variant="ghost" size="icon" onClick={handleSignOut}>
               <LogOut className="w-4 h-4" />
@@ -133,79 +166,37 @@ const Chat = () => {
         </div>
       </header>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto container mx-auto px-4 py-8">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full space-y-4 text-center">
+          <div className="flex flex-col items-center justify-center h-full space-y-4 text-center opacity-80">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
               <Sparkles className="w-10 h-10 text-white" />
             </div>
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold">Welcome to USWA</h2>
-              <p className="text-muted-foreground max-w-md">
-                Your intelligent work assistant. Ask me anything, give me commands, or use voice input
-                to get started.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-8 max-w-2xl">
-              {[
-                "What can you help me with?",
-                "Create a task for tomorrow",
-                "Summarize my day",
-                "Set up a meeting reminder",
-              ].map((suggestion, i) => (
-                <Button
-                  key={i}
-                  variant="outline"
-                  className="text-left justify-start h-auto py-3 px-4"
-                  onClick={() => sendMessage(suggestion)}
-                >
-                  {suggestion}
-                </Button>
-              ))}
-            </div>
+            <h2 className="text-2xl font-bold">How can I help you?</h2>
+            <p className="text-muted-foreground">Ask about tasks or documents in this workspace.</p>
           </div>
         ) : (
-          <div className="space-y-4 max-w-3xl mx-auto">
+          <div className="space-y-6 max-w-3xl mx-auto">
             {messages.map((message, i) => (
-              <div
-                key={i}
-                className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
+              <div key={i} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 {message.role === "assistant" && (
-                  <Avatar className="w-8 h-8 bg-gradient-to-br from-primary to-accent">
-                    <AvatarFallback>
-                      <Sparkles className="w-4 h-4 text-white" />
-                    </AvatarFallback>
-                  </Avatar>
+                  <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
                 )}
-                <div
-                  className={`rounded-2xl px-4 py-3 max-w-[80%] ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground"
-                  }`}
-                >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                <div className={`rounded-2xl px-5 py-3 max-w-[80%] shadow-sm ${
+                  message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
+                }`}>
+                  <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 </div>
                 {message.role === "user" && (
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback>
-                      <User className="w-4 h-4" />
-                    </AvatarFallback>
-                  </Avatar>
+                   <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
                 )}
               </div>
             ))}
             {isLoading && (
               <div className="flex gap-3">
-                <Avatar className="w-8 h-8 bg-gradient-to-br from-primary to-accent">
-                  <AvatarFallback>
-                    <Sparkles className="w-4 h-4 text-white" />
-                  </AvatarFallback>
-                </Avatar>
-                <div className="rounded-2xl px-4 py-3 bg-muted">
-                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
+                <div className="rounded-2xl px-5 py-3 bg-card border flex items-center">
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                 </div>
               </div>
             )}
@@ -214,38 +205,32 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Input */}
-      <div className="border-t bg-card/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4">
-          <form onSubmit={handleSubmit} className="flex gap-2 max-w-3xl mx-auto">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message or use voice..."
-              disabled={isLoading}
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              onClick={() => setShowVoiceRecorder(true)}
-              disabled={isLoading}
-            >
-              <Mic className="w-4 h-4" />
-            </Button>
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
-              <Send className="w-4 h-4" />
-            </Button>
-          </form>
-        </div>
+      <div className="border-t bg-card/50 backdrop-blur-sm p-4">
+        <form onSubmit={handleSubmit} className="flex gap-2 max-w-3xl mx-auto relative">
+          <Input 
+            value={input} 
+            onChange={(e) => setInput(e.target.value)} 
+            placeholder="Type 'Create task: ...' or ask a question" 
+            disabled={isLoading}
+            className="pr-12"
+          />
+          <Button 
+            type="button" 
+            variant="ghost" 
+            size="icon" 
+            className="absolute right-14 top-0 h-full text-muted-foreground hover:text-primary"
+            onClick={() => setShowVoiceRecorder(true)}
+          >
+            <Mic className="w-5 h-5" />
+          </Button>
+          <Button type="submit" disabled={isLoading || !input.trim()}>
+            <Send className="w-4 h-4" />
+          </Button>
+        </form>
       </div>
 
       {showVoiceRecorder && (
-        <VoiceRecorder
-          onTranscript={handleVoiceTranscript}
-          onClose={() => setShowVoiceRecorder(false)}
-        />
+        <VoiceRecorder onTranscript={(text) => { setInput(text); sendMessage(text); setShowVoiceRecorder(false); }} onClose={() => setShowVoiceRecorder(false)} />
       )}
     </div>
   );
