@@ -1,4 +1,3 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
@@ -8,131 +7,89 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // FIX 1: Destructure workspace_id
-    const { messages, user_id, workspace_id } = await req.json();
+    const { messages, workspace_id } = await req.json();
     const latestMessage = messages[messages.length - 1].content;
 
-    const apiKey = Deno.env.get("GROQ_API_KEY"); 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
-    // --- TASK CREATION LOGIC ---
-    const taskMatch = latestMessage.match(/^(?:create|add)\s+task[:\s]+(.+)/i);
+    // --- STEP 1: Turn User Question into a Vector (Hugging Face) ---
+    const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
+    const embeddingResponse = await fetch(
+      "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${hfKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: latestMessage, options: { wait_for_model: true } }),
+      }
+    );
     
-    if (taskMatch) {
-      const taskTitle = taskMatch[1].trim();
+    const embeddingResult = await embeddingResponse.json();
+    const queryVector = Array.isArray(embeddingResult[0]) ? embeddingResult[0] : embeddingResult;
 
-      if (!user_id || !workspace_id) {
-        return new Response(JSON.stringify({ reply: "Error: I need to know which workspace you are in." }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    // --- STEP 2: Find Relevant Documents (Supabase Vector Search) ---
+    const { data: documents, error: searchError } = await supabase.rpc("match_documents", {
+      query_embedding: queryVector,
+      match_threshold: 0.50, // 50% similarity threshold
+      match_count: 4,        // Retrieve top 4 chunks
+      filter_workspace_id: workspace_id
+    });
 
-      // FIX 2: Find a project INSIDE this specific workspace
-      let projectId;
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("workspace_id", workspace_id) // <--- Filter by Workspace
-        .limit(1);
-      
-      if (projects && projects.length > 0) {
-        projectId = projects[0].id;
-      } else {
-        // Create default project if none exists
-        const { data: newProject } = await supabase
-          .from("projects")
-          .insert({ name: "General", workspace_id: workspace_id })
-          .select("id")
-          .single();
-        projectId = newProject?.id;
-      }
-
-      // FIX 3: Insert task
-      const { error: insertError } = await supabase
-        .from("tasks")
-        .insert({
-          title: taskTitle,
-          status: "todo",
-          priority: "medium",
-          creator_id: user_id,
-          project_id: projectId 
-        });
-
-      if (insertError) {
-        console.error("Task Insert Error:", insertError);
-        return new Response(JSON.stringify({ reply: "I failed to create the task. Please check permissions." }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      return new Response(JSON.stringify({ 
-        reply: `✅ Added "${taskTitle}" to your workspace task list.` 
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    
-    // --- RAG (DOCUMENT SEARCH) LOGIC ---
-    if (!apiKey) throw new Error("GROQ_API_KEY is not set");
-
-    // FIX 4: Search documents ONLY in the current workspace
-    const { data: docs } = await supabase
-      .from("documents")
-      .select("content_text, name")
-      .eq("workspace_id", workspace_id) // <--- Critical Filter
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    let contextBlock = "";
-    if (docs && docs.length > 0) {
-      contextBlock = "\n\nRELEVANT DOCUMENTS:\n" + 
-        docs.map((d: any) => `--- ${d.name} ---\n${d.content_text.substring(0, 500)}...`).join("\n\n");
+    if (searchError) {
+        console.error("Search Error:", searchError);
+        throw new Error("Failed to search knowledge base.");
     }
 
-    const systemMessage = {
-      role: "system",
-      content: `You are USWA, an intelligent work assistant. 
-      Today is ${new Date().toLocaleDateString()}.
-      ${contextBlock}
-      
-      Instructions:
-      - Answer questions based on the documents provided.
-      - Only use documents from the current workspace.
-      - Be concise.`
-    };
+    // --- STEP 3: Build the Prompt for Groq ---
+    let contextText = "No relevant documents found in the workspace.";
+    if (documents && documents.length > 0) {
+      contextText = documents.map((doc: any) => `[Source ID: ${doc.id}]\n${doc.content_text}`).join("\n\n");
+    }
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const systemPrompt = `
+    You are USWA, an AI workplace assistant.
+    Use the Context below to answer the user's question.
+    If the answer isn't in the context, say you don't know, but try to be helpful.
+    
+    --- CONTEXT FROM WORKSPACE DOCUMENTS ---
+    ${contextText}
+    ----------------------------------------
+    `;
+
+    // --- STEP 4: Generate Answer (Groq / Llama 3) ---
+    const groqKey = Deno.env.get("GROQ_API_KEY");
+    const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${groqKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [systemMessage, ...messages],
-        temperature: 0.2,
+        model: "llama3-8b-8192", // High speed, low cost (free tier)
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages // Include recent chat history
+        ],
+        temperature: 0.1 // Keep it factual
       }),
     });
 
-    const data = await response.json();
-    if (data.error) throw new Error(`Groq Error: ${data.error.message}`);
+    const completionData = await completionResponse.json();
+    const aiReply = completionData.choices[0].message.content;
 
-    return new Response(JSON.stringify({ reply: data.choices[0].message.content }), {
+    return new Response(JSON.stringify({ reply: aiReply }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error: any) {
-    console.error("Chat Error:", error);
+    console.error("Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }
 });
