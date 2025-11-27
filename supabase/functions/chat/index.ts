@@ -18,50 +18,63 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- STEP 1: Turn User Question into a Vector (Hugging Face) ---
+    // --- STEP 1: Turn User Question into a Vector (NEW MODEL) ---
     const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
+    
+    // Using BAAI/bge-small-en-v1.5 to match the document embeddings
     const embeddingResponse = await fetch(
-      "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2",
+      "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${hfKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: latestMessage, options: { wait_for_model: true } }),
+        body: JSON.stringify({ 
+            inputs: [latestMessage], 
+            options: { wait_for_model: true } 
+        }),
       }
     );
+
+    if (!embeddingResponse.ok) {
+        const errText = await embeddingResponse.text();
+        throw new Error(`Hugging Face Error: ${errText}`);
+    }
     
     const embeddingResult = await embeddingResponse.json();
-    const queryVector = Array.isArray(embeddingResult[0]) ? embeddingResult[0] : embeddingResult;
+    
+    let queryVector = embeddingResult;
+    if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
+        queryVector = embeddingResult[0];
+    }
 
-    // --- STEP 2: Find Relevant Documents (Supabase Vector Search) ---
+    // --- STEP 2: Find Relevant Documents ---
     const { data: documents, error: searchError } = await supabase.rpc("match_documents", {
       query_embedding: queryVector,
-      match_threshold: 0.50, // 50% similarity threshold
-      match_count: 4,        // Retrieve top 4 chunks
+      match_threshold: 0.50,
+      match_count: 5,
       filter_workspace_id: workspace_id
     });
 
     if (searchError) {
         console.error("Search Error:", searchError);
-        throw new Error("Failed to search knowledge base.");
     }
 
-    // --- STEP 3: Build the Prompt for Groq ---
-    let contextText = "No relevant documents found in the workspace.";
+    // --- STEP 3: Build Context ---
+    let contextText = "No specific documents found for this query.";
     if (documents && documents.length > 0) {
-      contextText = documents.map((doc: any) => `[Source ID: ${doc.id}]\n${doc.content_text}`).join("\n\n");
+      contextText = documents.map((doc: any) => `[Content]: ${doc.content_text}`).join("\n\n");
     }
 
     const systemPrompt = `
     You are USWA, an AI workplace assistant.
-    Use the Context below to answer the user's question.
-    If the answer isn't in the context, say you don't know, but try to be helpful.
+    Answer the user's question based ONLY on the context provided below.
+    If the answer is not in the context, say "I don't have that information in the uploaded documents."
     
-    --- CONTEXT FROM WORKSPACE DOCUMENTS ---
+    --- CONTEXT ---
     ${contextText}
-    ----------------------------------------
+    ---------------
     `;
 
-    // --- STEP 4: Generate Answer (Groq / Llama 3) ---
+    // --- STEP 4: Generate Answer (Groq) ---
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -70,24 +83,29 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192", // High speed, low cost (free tier)
+        model: "llama3-8b-8192",
         messages: [
           { role: "system", content: systemPrompt },
-          ...messages // Include recent chat history
+          ...messages
         ],
-        temperature: 0.1 // Keep it factual
+        temperature: 0.1
       }),
     });
 
-    const completionData = await completionResponse.json();
-    const aiReply = completionData.choices[0].message.content;
+    if (!completionResponse.ok) {
+        const err = await completionResponse.text();
+        throw new Error(`Groq API Error: ${err}`);
+    }
 
-    return new Response(JSON.stringify({ reply: aiReply }), {
+    const completionData = await completionResponse.json();
+    const reply = completionData.choices[0].message.content;
+
+    return new Response(JSON.stringify({ reply }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error: any) {
-    console.error("Error:", error);
+    console.error("Chat Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }
     });

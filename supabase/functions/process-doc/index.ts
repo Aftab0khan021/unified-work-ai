@@ -12,36 +12,39 @@ serve(async (req) => {
   try {
     const { document_id, file_path } = await req.json();
     
-    // 1. Setup Supabase Client
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // 2. Download the File
-    const { data: fileData, error: downloadError } = await supabase.storage
+    // 1. Download File
+    const { data: fileBlob, error: downloadError } = await supabase.storage
       .from("workspace_docs")
       .download(file_path);
 
-    if (downloadError) throw new Error(`Download failed: ${downloadError.message}`);
+    if (downloadError) throw new Error(`Storage Download Error: ${downloadError.message}`);
 
-    // 3. Extract Text (Basic)
-    // NOTE: This assumes text files. For PDFs, you technically need a parser here.
-    // For now, we clean the text to prevent DB errors.
-    let textContent = await fileData.text();
-    textContent = textContent.replace(/\u0000/g, ''); // Remove null bytes
-    
-    // Limit text length to prevent API errors (approx 500 words for the free model)
+    // 2. Extract Text
+    let textContent = await fileBlob.text();
+    textContent = textContent.replace(/\0/g, '');
+
+    if (!textContent || textContent.trim().length === 0) {
+       console.log("File content empty, using filename.");
+       textContent = `Document: ${file_path.split('/').pop()}`; 
+    }
+
+    // Limit text length
     const chunkToEmbed = textContent.substring(0, 3000); 
+
+    // 3. Generate Embedding (NEW MODEL)
+    const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
+    if (!hfKey) throw new Error("Missing HUGGINGFACE_API_KEY");
 
     console.log(`Generating embedding for: ${file_path}`);
 
-    // 4. Get Real Embeddings from Hugging Face (Free)
-    const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
-    if (!hfKey) throw new Error("HUGGINGFACE_API_KEY is missing");
-
-    const embeddingResponse = await fetch(
-      "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2",
+    const response = await fetch(
+      // We switched to BAAI/bge-small-en-v1.5 which is a dedicated embedding model
+      "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
         method: "POST",
         headers: {
@@ -49,51 +52,43 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          inputs: chunkToEmbed,
+          inputs: [chunkToEmbed], // Send as array
           options: { wait_for_model: true }
         }),
       }
     );
 
-    if (!embeddingResponse.ok) {
-      const errorText = await embeddingResponse.text();
-      throw new Error(`Hugging Face Error: ${errorText}`);
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Hugging Face API Error: ${errText}`);
     }
 
-    const embedding = await embeddingResponse.json();
+    const embeddingResult = await response.json();
 
-    // Validating the embedding format
-    if (!Array.isArray(embedding) || embedding.length !== 384) {
-       // Sometimes HF returns an array of arrays, handle that:
-       if (Array.isArray(embedding[0]) && embedding[0].length === 384) {
-           // It's nested, use the first one
-       } else {
-           throw new Error(`Invalid embedding format received. Expected 384 dimensions.`);
-       }
+    // 4. Handle Response Format
+    let finalEmbedding = embeddingResult;
+    // Unwrap nested array if necessary [[0.1, 0.2...]]
+    if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
+        finalEmbedding = embeddingResult[0];
     }
-    const finalVector = Array.isArray(embedding[0]) ? embedding[0] : embedding;
 
-    // 5. Save to Database
+    // 5. Save to DB
     const { error: updateError } = await supabase
       .from("documents")
       .update({
-        content_text: textContent, // Save full text
-        embedding: finalVector,    // Save the vector
+        content_text: textContent,
+        embedding: finalEmbedding,
       })
       .eq("id", document_id);
 
-    if (updateError) throw updateError;
+    if (updateError) throw new Error(`DB Update Error: ${updateError.message}`);
 
-    return new Response(
-      JSON.stringify({ success: true, message: "Embedded successfully" }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (error: any) {
-    console.error("Error:", error.message);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error("Process Error:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
