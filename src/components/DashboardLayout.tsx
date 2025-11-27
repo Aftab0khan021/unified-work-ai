@@ -9,10 +9,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    // 1. CRITICAL FIX: Clear the active workspace ID
-    // This prevents User B from seeing User A's workspace data
+    // 1. CRITICAL FIX: Clear local storage so next user doesn't see old workspace
     localStorage.removeItem("activeWorkspaceId");
-
+    
     // 2. Sign out
     await supabase.auth.signOut();
     navigate("/auth");
@@ -29,11 +28,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex h-screen w-full overflow-hidden bg-background">
-        {/* Sidebar Section */}
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
             <WorkspaceSwitcher /> 
-
             <SidebarGroup>
               <SidebarGroupLabel>Menu</SidebarGroupLabel>
               <SidebarGroupContent>
@@ -65,8 +62,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </SidebarGroup>
           </SidebarContent>
         </Sidebar>
-        
-        {/* Main Content Section */}
         <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
           <header className="flex items-center h-14 border-b px-4 bg-background shrink-0">
             <SidebarTrigger />
@@ -74,7 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {items.find(i => i.url === location.pathname)?.title || "Dashboard"}
             </h2>
           </header>
-
           <main className="flex-1 overflow-auto p-6">
             {children}
           </main>

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, Loader2 } from "lucide-react";
 
 export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreated: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -19,14 +19,14 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      if (!user) throw new Error("You must be logged in");
 
       // 1. Create the workspace
       const { data: workspace, error: wsError } = await supabase
         .from("workspaces")
         .insert({ 
-          name,
-          owner_id: user.id // Explicitly set owner
+            name: name,
+            owner_id: user.id 
         })
         .select()
         .single();
@@ -43,12 +43,11 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
         });
 
       if (memberError) {
-         // If member add fails, cleanup workspace
          await supabase.from("workspaces").delete().eq("id", workspace.id);
          throw memberError;
       }
-
-      // 3. Create a default "General" project (Required for Tasks to work!)
+      
+      // 3. Create Default Project
       await supabase.from("projects").insert({
         name: "General",
         workspace_id: workspace.id,
@@ -59,15 +58,13 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
       setIsOpen(false);
       setName("");
       
-      // 4. Select the new workspace automatically
+      // 4. Force Select New Workspace
       localStorage.setItem("activeWorkspaceId", workspace.id);
-      
-      // 5. Refresh to show new data
-      window.location.reload(); 
+      window.location.reload();
 
     } catch (error: any) {
       console.error("Creation Error:", error);
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message || "Failed to create workspace", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +94,7 @@ export function CreateWorkspaceDialog({ onWorkspaceCreated }: { onWorkspaceCreat
             />
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Creating..." : "Create Workspace"}
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Workspace"}
           </Button>
         </form>
       </DialogContent>
