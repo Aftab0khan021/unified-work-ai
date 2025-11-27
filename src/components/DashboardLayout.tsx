@@ -3,7 +3,7 @@ import { MessageSquare, CheckSquare, LogOut, LayoutDashboard } from "lucide-reac
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher"; // <--- Make sure this file exists!
-
+import { FileText } from "lucide-react";
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -14,10 +14,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const items = [
-    { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
-    { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
-    { title: "My Tasks", url: "/tasks", icon: CheckSquare },
-  ];
+  { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
+  { title: "My Tasks", url: "/tasks", icon: CheckSquare },
+  { title: "Documents", url: "/documents", icon: FileText }, // Add this line
+];
 
   return (
     <SidebarProvider defaultOpen={true}>

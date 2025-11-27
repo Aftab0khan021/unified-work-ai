@@ -14,7 +14,7 @@ import NotFound from "./pages/NotFound";
 import Tasks from "./pages/Tasks";
 import Dashboard from "./pages/Dashboard";
 import DashboardLayout from "./components/DashboardLayout";
-
+import Documents from "./pages/Documents";
 const queryClient = new QueryClient();
 
 // Helper component to protect routes
@@ -54,7 +54,7 @@ const App = () => (
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
-
+          <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
           {/* Catch-all */}
           <Route path="*" element={<NotFound />} />
         </Routes>
