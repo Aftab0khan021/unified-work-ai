@@ -47,11 +47,12 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   urgent: "bg-red-100 text-red-700",
 };
 
-export function TaskBoard() {
+// ADDED: refreshTrigger prop
+export function TaskBoard({ refreshTrigger = 0 }: { refreshTrigger?: number }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null); // For Details Dialog
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const { toast } = useToast();
 
   const workspaceId = localStorage.getItem("activeWorkspaceId");
@@ -63,7 +64,9 @@ export function TaskBoard() {
     }
 
     try {
-      setIsLoading(true);
+      // Don't set loading to true on refresh to avoid flickering
+      // setIsLoading(true); 
+      
       const { data, error } = await supabase
         .from("tasks")
         .select("*") 
@@ -92,7 +95,7 @@ export function TaskBoard() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [workspaceId]);
+  }, [workspaceId, refreshTrigger]); // ADDED refreshTrigger dependency
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));

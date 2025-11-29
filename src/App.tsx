@@ -10,10 +10,11 @@ import { supabase } from "@/integrations/supabase/client";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
+import TeamChat from "./pages/TeamChat"; // Import TeamChat
 import NotFound from "./pages/NotFound";
 import Tasks from "./pages/Tasks";
 import Dashboard from "./pages/Dashboard";
-import Documents from "./pages/Documents"; // <--- Imported Documents page
+import Documents from "./pages/Documents"; 
 import DashboardLayout from "./components/DashboardLayout";
 import Settings from "./pages/Settings";
 const queryClient = new QueryClient();
@@ -54,8 +55,9 @@ const App = () => (
           {/* Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/team-chat" element={<ProtectedRoute><TeamChat /></ProtectedRoute>} /> {/* Added */}
           <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
-          <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} /> {/* <--- Added Documents Route */}
+          <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           {/* Catch-all */}
           <Route path="*" element={<NotFound />} />

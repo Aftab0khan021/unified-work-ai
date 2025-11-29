@@ -1,18 +1,16 @@
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarTrigger } from "@/components/ui/sidebar";
-import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText, Settings } from "lucide-react"; 
+import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText, Settings, Users } from "lucide-react"; 
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { GlobalSearch } from "./GlobalSearch"; 
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    // 1. CRITICAL FIX: Clear local storage so next user doesn't see old workspace
     localStorage.removeItem("activeWorkspaceId");
-    
-    // 2. Sign out
     await supabase.auth.signOut();
     navigate("/auth");
   };
@@ -20,6 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const items = [
     { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
     { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
+    { title: "Team Chat", url: "/team-chat", icon: Users }, // <--- ADDED THIS
     { title: "My Tasks", url: "/tasks", icon: CheckSquare },
     { title: "Documents", url: "/documents", icon: FileText },
     { title: "Settings", url: "/settings", icon: Settings },
@@ -28,6 +27,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex h-screen w-full overflow-hidden bg-background">
+        <GlobalSearch /> 
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
             <WorkspaceSwitcher /> 
@@ -63,11 +63,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </SidebarContent>
         </Sidebar>
         <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-          <header className="flex items-center h-14 border-b px-4 bg-background shrink-0">
-            <SidebarTrigger />
-            <h2 className="ml-4 font-semibold">
-              {items.find(i => i.url === location.pathname)?.title || "Dashboard"}
-            </h2>
+          <header className="flex items-center h-14 border-b px-4 bg-background shrink-0 justify-between">
+             <div className="flex items-center">
+                <SidebarTrigger />
+                <h2 className="ml-4 font-semibold">
+                {items.find(i => i.url === location.pathname)?.title || "Dashboard"}
+                </h2>
+             </div>
+             <div className="text-xs text-muted-foreground border rounded px-2 py-1 hidden sm:block">
+                Cmd+K to Search
+             </div>
           </header>
           <main className="flex-1 overflow-auto p-6">
             {children}

@@ -21,7 +21,14 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Loader2 } from "lucide-react";
 
-export function CreateTaskDialog({ workspaceId }: { workspaceId: string | null }) {
+// ADDED: onTaskCreated prop
+export function CreateTaskDialog({ 
+  workspaceId, 
+  onTaskCreated 
+}: { 
+  workspaceId: string | null,
+  onTaskCreated?: () => void 
+}) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
@@ -78,6 +85,10 @@ export function CreateTaskDialog({ workspaceId }: { workspaceId: string | null }
       setTitle("");
       setPriority("medium");
       setAssigneeId("unassigned");
+      
+      // TRIGGER REFRESH
+      if (onTaskCreated) onTaskCreated();
+
     } catch (error: any) {
       toast({
         title: "Error",
