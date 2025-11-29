@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X } from "lucide-react";
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X, Volume2, StopCircle } from "lucide-react"; 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -25,7 +25,6 @@ type Session = {
 };
 
 const Chat = () => {
-  // FIX: Retrieve workspace directly from storage to prevent white screen crash
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   const [user, setUser] = useState<any>(null);
@@ -35,11 +34,15 @@ const Chat = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  
+  // TTS State
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const synth = window.speechSynthesis;
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // 1. Init User & Fetch Sessions
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -50,12 +53,17 @@ const Chat = () => {
     });
   }, [navigate]);
 
-  // Fetch sessions when workspaceId changes
   useEffect(() => {
     if (user?.id && workspaceId) {
       fetchSessions(user.id, workspaceId);
     }
   }, [user, workspaceId]);
+
+  useEffect(() => {
+    return () => {
+        if (synth.speaking) synth.cancel();
+    };
+  }, []);
 
   const fetchSessions = async (userId: string, wsId: string) => {
     const { data, error } = await supabase
@@ -104,6 +112,27 @@ const Chat = () => {
       setMessages(prev => prev.filter(m => m.id !== messageId));
       toast({ title: "Message removed" });
     }
+  };
+
+  const speakText = (text: string) => {
+    synth.cancel();
+    setIsSpeaking(false);
+
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1; 
+        utterance.pitch = 1;
+        
+        const voices = synth.getVoices();
+        const preferredVoice = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en")) || voices.find(v => v.lang.startsWith("en"));
+        if (preferredVoice) utterance.voice = preferredVoice;
+
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        
+        synth.speak(utterance);
+    }, 10);
   };
 
   const sendMessage = async (messageText: string) => {
@@ -159,7 +188,6 @@ const Chat = () => {
 
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: savedUserMsg.id } : m));
 
-      // Invoke Agent with correct Workspace ID
       const { data, error } = await supabase.functions.invoke("chat", {
         body: { 
             messages: [...messages, { role: "user", content: userContent }], 
@@ -289,12 +317,35 @@ const Chat = () => {
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  <button 
-                    onClick={() => deleteMessage(message.id)}
-                    className={`absolute -top-2 ${message.role === 'user' ? '-left-2' : '-right-2'} p-1 rounded-full bg-background border shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  
+                  {/* FIX: Buttons moved BELOW the text, cleaner look */}
+                  <div className={`flex items-center gap-2 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    
+                    {/* Speak Button (Assistant Only) */}
+                    {message.role === 'assistant' && (
+                        <button 
+                            onClick={() => speakText(message.content)}
+                            className="p-1 rounded hover:bg-black/5 transition-colors"
+                            title="Read Aloud"
+                        >
+                            {isSpeaking ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
+                        </button>
+                    )}
+                    
+                    {/* Delete Button */}
+                    <button 
+                        onClick={() => deleteMessage(message.id)}
+                        className={`p-1 rounded transition-colors ${
+                            message.role === 'user' 
+                            ? 'hover:bg-white/20 text-primary-foreground/70 hover:text-primary-foreground' 
+                            : 'hover:bg-black/5 opacity-50 hover:opacity-100 hover:text-destructive'
+                        }`}
+                        title="Delete Message"
+                    >
+                        {/* Using Trash2 as it is more semantic for delete than X */}
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 {message.role === "user" && (
                    <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
@@ -322,7 +373,7 @@ const Chat = () => {
               <Input 
                 value={input} 
                 onChange={(e) => setInput(e.target.value)} 
-                placeholder="Create task: Finish report..." 
+                placeholder="Ask AI or create task..." 
                 disabled={isLoading}
                 className="pr-10"
               />
