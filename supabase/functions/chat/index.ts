@@ -11,11 +11,7 @@ serve(async (req) => {
 
   try {
     const { messages, workspace_id, user_id } = await req.json();
-    
-    // Safety check for user_id and workspace_id
-    if (!user_id || !workspace_id) {
-       throw new Error("Missing user_id or workspace_id");
-    }
+    if (!user_id || !workspace_id) throw new Error("Missing user_id or workspace_id");
 
     const latestMessage = messages[messages.length - 1].content;
 
@@ -24,27 +20,71 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- 1. System Prompt ---
-    // UPDATED: Strictly enforces "reply" field for general chat so the existing code picks it up.
+    // --- 1. RAG: Retrieve Relevant Documents (RESTORED) ---
+    let contextText = "";
+    const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
+
+    if (hfKey) {
+        try {
+            // Generate embedding for the user's question
+            const embeddingResponse = await fetch(
+            "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${hfKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ inputs: [latestMessage], options: { wait_for_model: true } }),
+            }
+            );
+
+            if (embeddingResponse.ok) {
+                const embeddingResult = await embeddingResponse.json();
+                // Handle different response formats from HF API
+                const queryVector = (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) 
+                    ? embeddingResult[0] 
+                    : embeddingResult;
+
+                // Search database for matching docs
+                const { data: documents } = await supabase.rpc("match_documents", {
+                    query_embedding: queryVector,
+                    match_threshold: 0.50, // Similarity threshold
+                    match_count: 4,
+                    filter_workspace_id: workspace_id
+                });
+
+                if (documents && documents.length > 0) {
+                    contextText = documents.map((doc: any) => `SOURCE: ${doc.content_text}`).join("\n\n");
+                    console.log("Found docs:", documents.length);
+                }
+            }
+        } catch (e) {
+            console.log("RAG Error (continuing without context):", e);
+        }
+    }
+
+    // --- 2. System Prompt ---
     const systemPrompt = `
     You are USWA, an AI assistant.
     
-    You must ALWAYS return a JSON object.
+    You must ALWAYS return a valid JSON object.
     
     SCENARIO 1: If the user wants to CREATE A TASK:
     Return: { "tool": "create_task", "title": "Task Name", "priority": "medium" }
     
-    SCENARIO 2: For any other conversation, questions, or help:
-    Return: { "tool": null, "reply": "Your helpful answer here as a string." }
+    SCENARIO 2: For questions, use the provided CONTEXT.
+    Return: { "tool": null, "reply": "Your answer based on the context." }
+
+    --- CONTEXT FROM DOCUMENTS ---
+    ${contextText || "No relevant documents found."}
+    ------------------------------
     `;
 
-    // --- 2. Clean Messages ---
+    // --- 3. Clean Messages ---
     const cleanMessages = messages.map((msg: any) => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
     }));
 
-    // --- 3. Call AI (Groq) ---
+    // --- 4. Call AI (Groq) ---
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -66,12 +106,13 @@ serve(async (req) => {
     const rawContent = completionData.choices[0].message.content;
     let finalReply = rawContent;
 
-    // --- 4. Tool Execution ---
+    // --- 5. Tool Execution ---
     try {
-        const action = JSON.parse(rawContent);
+        // Strip markdown if present
+        const cleanedContent = rawContent.replace(/^```json\s*|\s*```$/g, '').replace(/^```\s*|\s*```$/g, '');
+        const action = JSON.parse(cleanedContent);
 
         if (action.tool === "create_task") {
-            // Find a project ID for this workspace
             const { data: project } = await supabase
                 .from('projects')
                 .select('id')
@@ -84,7 +125,6 @@ serve(async (req) => {
             if (!projectId) {
                 finalReply = "I couldn't find a project in this workspace to add the task to.";
             } else {
-                // Insert into DB using PROJECT ID
                 const { error: insertError } = await supabase
                     .from("tasks")
                     .insert({
@@ -104,9 +144,11 @@ serve(async (req) => {
             }
         } else if (action.reply) {
             finalReply = action.reply;
+        } else if (action.description) {
+            finalReply = action.description;
         }
     } catch (e) {
-        // Content wasn't JSON, just use it as text
+        console.warn("Parsing Error:", e);
     }
 
     return new Response(JSON.stringify({ reply: finalReply }), {
