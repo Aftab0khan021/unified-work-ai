@@ -1,5 +1,5 @@
 import { SidebarProvider, Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarTrigger } from "@/components/ui/sidebar";
-import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText, Settings, Users } from "lucide-react"; 
+import { MessageSquare, CheckSquare, LogOut, LayoutDashboard, FileText, Settings, Users, Calendar } from "lucide-react"; 
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
@@ -18,8 +18,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const items = [
     { title: "Overview", url: "/dashboard", icon: LayoutDashboard },
     { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
-    { title: "Team Chat", url: "/team-chat", icon: Users }, // <--- ADDED THIS
+    { title: "Team Chat", url: "/team-chat", icon: Users },
     { title: "My Tasks", url: "/tasks", icon: CheckSquare },
+    { title: "Calendar", url: "/calendar", icon: Calendar }, // <--- ADDED THIS
     { title: "Documents", url: "/documents", icon: FileText },
     { title: "Settings", url: "/settings", icon: Settings },
   ];

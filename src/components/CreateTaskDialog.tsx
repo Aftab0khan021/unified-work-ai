@@ -21,7 +21,6 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Loader2 } from "lucide-react";
 
-// ADDED: onTaskCreated prop
 export function CreateTaskDialog({ 
   workspaceId, 
   onTaskCreated 
@@ -34,6 +33,8 @@ export function CreateTaskDialog({
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("medium");
   const [assigneeId, setAssigneeId] = useState<string>("unassigned");
+  // FIX: New state for Due Date
+  const [dueDate, setDueDate] = useState(""); 
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const { toast } = useToast();
 
@@ -76,6 +77,8 @@ export function CreateTaskDialog({
         workspace_id: workspaceId,
         creator_id: user.id,
         assignee_id: assigneeId === "unassigned" ? null : assigneeId,
+        // FIX: Insert the selected Due Date
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
       });
 
       if (error) throw error;
@@ -85,8 +88,8 @@ export function CreateTaskDialog({
       setTitle("");
       setPriority("medium");
       setAssigneeId("unassigned");
+      setDueDate(""); // Reset date
       
-      // TRIGGER REFRESH
       if (onTaskCreated) onTaskCreated();
 
     } catch (error: any) {
@@ -121,20 +124,34 @@ export function CreateTaskDialog({
               placeholder="e.g. Update website homepage"
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="priority">Priority</Label>
-            <Select value={priority} onValueChange={setPriority}>
-              <SelectTrigger id="priority">
-                <SelectValue placeholder="Select priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
-              </SelectContent>
-            </Select>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+                <Label htmlFor="priority">Priority</Label>
+                <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger id="priority">
+                    <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+                </Select>
+            </div>
+            {/* FIX: New Date Input Field */}
+            <div className="grid gap-2">
+                <Label htmlFor="dueDate">Due Date</Label>
+                <Input
+                    id="dueDate"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                />
+            </div>
           </div>
+
           <div className="grid gap-2">
             <Label htmlFor="assignee">Assign To</Label>
             <Select value={assigneeId} onValueChange={setAssigneeId}>
