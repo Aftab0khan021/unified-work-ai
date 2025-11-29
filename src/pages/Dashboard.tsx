@@ -10,6 +10,7 @@ import {
   Activity 
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ActivityFeed } from "@/components/ActivityFeed"; // Import the new component
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ 
@@ -19,7 +20,6 @@ export default function Dashboard() {
     totalChats: 0 
   });
   const [activityData, setActivityData] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
@@ -30,28 +30,27 @@ export default function Dashboard() {
         return;
       }
 
-      // 1. Fetch Tasks (Filtered by Workspace via Projects)
+      // 1. Fetch Tasks
       const { data: tasks } = await supabase
         .from("tasks")
-        .select("id, status, created_at, title, projects!inner(workspace_id)")
-        .eq("projects.workspace_id", workspaceId)
-        .order("created_at", { ascending: false });
-
-      // 2. Fetch Documents (Filtered by Workspace)
-      const { data: docs } = await supabase
-        .from("documents")
-        .select("id, name, created_at")
+        .select("id, status, created_at, title")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false });
 
-      // 3. Fetch Chats (Filtered by Workspace)
+      // 2. Fetch Documents
+      const { data: docs } = await supabase
+        .from("documents")
+        .select("id, name, created_at")
+        .eq("workspace_id", workspaceId);
+
+      // 3. Fetch Chats
       let chats = [];
       try {
         const { data } = await supabase
           .from("chat_messages")
           .select("id, created_at, role")
           .eq("role", "user")
-          .eq("workspace_id", workspaceId) // <--- CRITICAL FIX
+          .eq("workspace_id", workspaceId)
           .order("created_at", { ascending: false });
         chats = data || [];
       } catch (e) {
@@ -84,15 +83,6 @@ export default function Dashboard() {
       }));
       setActivityData(chartData);
 
-      // --- RECENT ACTIVITY ---
-      const combined = [
-        ...safeTasks.slice(0, 3).map(t => ({ id: t.id, type: 'task', title: `Created task "${t.title}"`, time: t.created_at })),
-        ...safeDocs.slice(0, 3).map(d => ({ id: d.id, type: 'doc', title: `Uploaded "${d.name}"`, time: d.created_at })),
-      ].sort((a, b) => new Date(b.time || '').getTime() - new Date(a.time || '').getTime())
-       .slice(0, 5);
-      
-      setRecentActivity(combined);
-
     } catch (error) {
       console.error("Dashboard error:", error);
     } finally {
@@ -102,13 +92,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-
-    // Realtime listener
     const channel = supabase
       .channel("dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public" }, loadData)
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, []);
 
@@ -134,7 +121,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalTasks}</div>
             <p className="text-xs text-muted-foreground flex items-center mt-1">
-              <TrendingUp className="w-3 h-3 mr-1 text-green-500" /> +{activityData[activityData.length-1]?.tasks || 0} today
+              <TrendingUp className="w-3 h-3 mr-1 text-green-500" /> Tracked
             </p>
           </CardContent>
         </Card>
@@ -196,28 +183,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>Recent Updates</CardTitle>
-            <CardDescription>Latest actions in workspace</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-8">
-              {recentActivity.map((item, i) => (
-                <div key={i} className="flex items-center">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-full border ${item.type === 'task' ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-blue-500/10 border-blue-500/20 text-blue-500'}`}>
-                    {item.type === 'task' ? <CheckCircle2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                  </div>
-                  <div className="ml-4 space-y-1">
-                    <p className="text-sm font-medium leading-none">{item.title}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                  </div>
-                </div>
-              ))}
-              {recentActivity.length === 0 && <div className="text-center text-muted-foreground py-4">No recent activity</div>}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Updated Activity Feed Component */}
+        <ActivityFeed />
       </div>
     </div>
   );

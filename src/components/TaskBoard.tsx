@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, MoreHorizontal } from "lucide-react";
+import { Loader2, MoreHorizontal, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,6 +12,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { TaskComments } from "@/components/TaskComments";
 
 type TaskStatus = "todo" | "in_progress" | "review" | "done";
 type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -44,6 +51,7 @@ export function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null); // For Details Dialog
   const { toast } = useToast();
 
   const workspaceId = localStorage.getItem("activeWorkspaceId");
@@ -56,10 +64,6 @@ export function TaskBoard() {
 
     try {
       setIsLoading(true);
-      
-      // FIX: Removed "projects!inner" join so manual tasks (without projects) can show up.
-      // FIX: Removed ".eq('creator_id', userId)" so Assignees can see tasks too.
-      // The Database RLS policies will safely handle who sees what.
       const { data, error } = await supabase
         .from("tasks")
         .select("*") 
@@ -78,18 +82,11 @@ export function TaskBoard() {
 
   useEffect(() => {
     fetchTasks();
-    
     if (!workspaceId) return;
 
-    // FIX: Subscribe to workspace changes so Assignees see updates instantly
     const channel = supabase
       .channel('board-realtime')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'tasks',
-        filter: `workspace_id=eq.${workspaceId}` 
-      }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `workspace_id=eq.${workspaceId}` }, () => {
         fetchTasks();
       })
       .subscribe();
@@ -99,12 +96,7 @@ export function TaskBoard() {
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: newStatus })
-      .eq("id", taskId);
-
+    const { error } = await supabase.from("tasks").update({ status: newStatus }).eq("id", taskId);
     if (error) {
       toast({ title: "Error", description: "Failed to update task", variant: "destructive" });
       fetchTasks();
@@ -139,8 +131,7 @@ export function TaskBoard() {
   };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
-
-  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select a workspace to view tasks.</div>;
+  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select a workspace.</div>;
 
   return (
     <div className="h-full flex gap-4 overflow-x-auto pb-4">
@@ -155,7 +146,6 @@ export function TaskBoard() {
             {col.label}
             <Badge variant="secondary">{tasks.filter(t => t.status === col.id).length}</Badge>
           </div>
-          
           <ScrollArea className="flex-1 p-2">
             <div className="space-y-3">
               {tasks.filter(t => t.status === col.id).map((task) => (
@@ -175,6 +165,9 @@ export function TaskBoard() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => setSelectedTask(task)}>
+                            <MessageSquare className="h-3 w-3 mr-2" /> View Details & Comments
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600 cursor-pointer">
                             Delete
                           </DropdownMenuItem>
@@ -198,6 +191,25 @@ export function TaskBoard() {
           </ScrollArea>
         </div>
       ))}
+
+      {/* Task Details Dialog */}
+      <Dialog open={!!selectedTask} onOpenChange={() => setSelectedTask(null)}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{selectedTask?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <div className="flex gap-2 mb-4">
+              <Badge variant="secondary" className="capitalize">{selectedTask?.status.replace('_', ' ')}</Badge>
+              <Badge variant="outline" className="capitalize">{selectedTask?.priority}</Badge>
+            </div>
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-semibold mb-3">Comments</h4>
+              {selectedTask && <TaskComments taskId={selectedTask.id} />}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
