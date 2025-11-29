@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,11 +9,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import VoiceRecorder from "@/components/VoiceRecorder";
-
-// Define the context to match DashboardLayout
-interface WorkspaceContext {
-  currentWorkspace: { id: string; name: string } | null;
-}
 
 type Message = {
   id: string;
@@ -30,9 +25,8 @@ type Session = {
 };
 
 const Chat = () => {
-  // CRITICAL FIX: Get workspace from the App Context, not LocalStorage
-  const { currentWorkspace } = useOutletContext<WorkspaceContext>();
-  const workspaceId = currentWorkspace?.id;
+  // FIX: Retrieve workspace directly from storage to prevent white screen crash
+  const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   const [user, setUser] = useState<any>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -116,7 +110,7 @@ const Chat = () => {
     if (!messageText.trim() || isLoading) return;
     
     if (!workspaceId) {
-        toast({ title: "Wait", description: "Loading workspace...", variant: "destructive" });
+        toast({ title: "No Workspace", description: "Please select a workspace first.", variant: "destructive" });
         return;
     }
 
@@ -133,7 +127,7 @@ const Chat = () => {
           .from("chat_sessions")
           .insert({ 
             user_id: user.id, 
-            workspace_id: workspaceId, // Use the correct workspace
+            workspace_id: workspaceId,
             title: title 
           })
           .select()
@@ -170,7 +164,7 @@ const Chat = () => {
         body: { 
             messages: [...messages, { role: "user", content: userContent }], 
             user_id: user.id,
-            workspace_id: workspaceId // <--- This ensures the task goes to the right place
+            workspace_id: workspaceId 
         },
       });
 
@@ -182,7 +176,7 @@ const Chat = () => {
           .insert({ 
               role: "assistant", 
               content: data.reply, 
-              user_id: user.id,
+              user_id: user.id, 
               workspace_id: workspaceId,
               session_id: activeSessionId
           })

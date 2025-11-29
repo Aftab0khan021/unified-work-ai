@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, MoreHorizontal } from "lucide-react";
+import { Loader2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,6 +22,7 @@ interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date?: string;
+  creator_id: string;
 }
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
@@ -42,21 +43,26 @@ export function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // FIX: Get workspace ID
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setUserId(user.id);
+    });
+  }, []);
+
   const fetchTasks = async () => {
-    // FIX: Handle missing workspace ID by stopping loading immediately
-    if (!workspaceId) {
-      setIsLoading(false);
+    if (!workspaceId || !userId) {
+      if (!workspaceId) setIsLoading(false);
       return;
     }
 
     try {
       setIsLoading(true);
-      // Filter by workspace using Inner Join on Projects
+      
       const { data, error } = await supabase
         .from("tasks")
         .select(`
@@ -64,13 +70,14 @@ export function TaskBoard() {
           projects!inner(workspace_id)
         `)
         .eq("projects.workspace_id", workspaceId)
+        .eq("creator_id", userId) // FIX: Filter by creator_id to show ALL your tasks (old and new)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
       setTasks(data as any || []);
     } catch (error: any) {
       console.error("Board fetch error:", error);
-      // Silent fail for UX, or show toast if critical
+      toast({ title: "Error", description: "Failed to load tasks" });
     } finally {
       setIsLoading(false);
     }
@@ -79,15 +86,21 @@ export function TaskBoard() {
   useEffect(() => {
     fetchTasks();
     
+    // Subscribe to changes where creator_id matches current user
     const channel = supabase
       .channel('board-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'tasks',
+        filter: `creator_id=eq.${userId}` 
+      }, () => {
         fetchTasks();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [workspaceId]);
+  }, [workspaceId, userId]);
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
@@ -123,12 +136,16 @@ export function TaskBoard() {
 
   const deleteTask = async (id: string) => {
     const { error } = await supabase.from("tasks").delete().eq("id", id);
-    if (error) toast({ title: "Error", description: "Delete failed" });
+    if (error) {
+      toast({ title: "Error", description: "Delete failed" });
+    } else {
+      setTasks(prev => prev.filter(t => t.id !== id));
+    }
   };
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
-  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select or create a workspace to view tasks.</div>;
+  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select a workspace.</div>;
 
   return (
     <div className="h-full flex gap-4 overflow-x-auto pb-4">
@@ -163,7 +180,7 @@ export function TaskBoard() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
+                          <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600 cursor-pointer">
                             Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>

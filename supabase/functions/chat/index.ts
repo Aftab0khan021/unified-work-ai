@@ -11,6 +11,12 @@ serve(async (req) => {
 
   try {
     const { messages, workspace_id, user_id } = await req.json();
+    
+    // Safety check for user_id and workspace_id
+    if (!user_id || !workspace_id) {
+       throw new Error("Missing user_id or workspace_id");
+    }
+
     const latestMessage = messages[messages.length - 1].content;
 
     const supabase = createClient(
@@ -18,66 +24,27 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- 1. RAG Context (Optional) ---
-    const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
-    let contextText = "No specific documents found.";
-
-    if (hfKey) {
-        try {
-            const embeddingResponse = await fetch(
-            "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
-            {
-                method: "POST",
-                headers: { Authorization: `Bearer ${hfKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ inputs: [latestMessage], options: { wait_for_model: true } }),
-            }
-            );
-
-            if (embeddingResponse.ok) {
-                const embeddingResult = await embeddingResponse.json();
-                const queryVector = (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) 
-                    ? embeddingResult[0] 
-                    : embeddingResult;
-
-                const { data: documents } = await supabase.rpc("match_documents", {
-                    query_embedding: queryVector,
-                    match_threshold: 0.45,
-                    match_count: 3,
-                    filter_workspace_id: workspace_id
-                });
-
-                if (documents && documents.length > 0) {
-                    contextText = documents.map((doc: any) => `[Doc]: ${doc.content_text}`).join("\n\n");
-                }
-            }
-        } catch (e) {
-            console.log("RAG skipped:", e);
-        }
-    }
-
-    // --- 2. System Prompt (The "Brain") ---
+    // --- 1. System Prompt ---
+    // UPDATED: Strictly enforces "reply" field for general chat so the existing code picks it up.
     const systemPrompt = `
     You are USWA, an AI assistant.
     
-    TOOLS:
-    - If the user wants to CREATE A TASK, return a JSON object: 
-      { "tool": "create_task", "title": "Task Name", "priority": "medium" }
+    You must ALWAYS return a JSON object.
     
-    - Otherwise, answer the question using the context below.
+    SCENARIO 1: If the user wants to CREATE A TASK:
+    Return: { "tool": "create_task", "title": "Task Name", "priority": "medium" }
     
-    --- CONTEXT ---
-    ${contextText}
-    ---------------
+    SCENARIO 2: For any other conversation, questions, or help:
+    Return: { "tool": null, "reply": "Your helpful answer here as a string." }
     `;
 
-    // --- 3. Sanitize Messages (CRITICAL FIX) ---
-    // This removes 'created_at', 'id', etc. which caused the Groq error
+    // --- 2. Clean Messages ---
     const cleanMessages = messages.map((msg: any) => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
     }));
 
-    // --- 4. Call Groq ---
+    // --- 3. Call AI (Groq) ---
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -99,30 +66,41 @@ serve(async (req) => {
     const rawContent = completionData.choices[0].message.content;
     let finalReply = rawContent;
 
-    // --- 5. Tool Execution (The "Hands") ---
+    // --- 4. Tool Execution ---
     try {
         const action = JSON.parse(rawContent);
 
         if (action.tool === "create_task") {
-            console.log("Creating Task:", action.title);
+            // Find a project ID for this workspace
+            const { data: project } = await supabase
+                .from('projects')
+                .select('id')
+                .eq('workspace_id', workspace_id)
+                .limit(1)
+                .single();
+            
+            const projectId = project?.id;
 
-            // Insert into DB with Workspace ID
-            const { error: insertError } = await supabase
-                .from("tasks")
-                .insert({
-                    title: action.title,
-                    priority: action.priority || "medium",
-                    status: "todo",
-                    creator_id: user_id, 
-                    user_id: user_id,
-                    workspace_id: workspace_id // <--- CRITICAL: Ensures task appears on the correct board
-                });
-
-            if (insertError) {
-                console.error("DB Error:", insertError);
-                finalReply = "I tried to create the task, but a database error occurred.";
+            if (!projectId) {
+                finalReply = "I couldn't find a project in this workspace to add the task to.";
             } else {
-                finalReply = `✅ Added task: "${action.title}" to your board.`;
+                // Insert into DB using PROJECT ID
+                const { error: insertError } = await supabase
+                    .from("tasks")
+                    .insert({
+                        title: action.title,
+                        priority: action.priority || "medium",
+                        status: "todo",
+                        creator_id: user_id, 
+                        project_id: projectId 
+                    });
+
+                if (insertError) {
+                    console.error("DB Error:", insertError);
+                    finalReply = "I tried to create the task, but a database error occurred.";
+                } else {
+                    finalReply = `✅ Added task: "${action.title}" to your board.`;
+                }
             }
         } else if (action.reply) {
             finalReply = action.reply;
