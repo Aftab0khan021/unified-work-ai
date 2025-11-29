@@ -18,9 +18,10 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- STEP 1: Turn User Question into a Vector (STABLE MODEL) ---
+    // --- STEP 1: Embedding (BGE Model) ---
     const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
-    
+    if (!hfKey) throw new Error("HUGGINGFACE_API_KEY is missing");
+
     const embeddingResponse = await fetch(
       "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
@@ -33,48 +34,56 @@ serve(async (req) => {
       }
     );
 
-    if (!embeddingResponse.ok) {
-        const errText = await embeddingResponse.text();
-        throw new Error(`Hugging Face Error: ${errText}`);
+    let queryVector = [];
+    if (embeddingResponse.ok) {
+        try {
+            const embeddingResult = await embeddingResponse.json();
+            if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
+                queryVector = embeddingResult[0];
+            } else {
+                queryVector = embeddingResult;
+            }
+        } catch (e) {
+            console.error("Embedding parse error", e);
+        }
+    } else {
+        console.error("Embedding API failed:", await embeddingResponse.text());
     }
+
+    // --- STEP 2: Vector Search ---
+    let contextText = "No specific documents found.";
     
-    const embeddingResult = await embeddingResponse.json();
-    
-    // Unwrap nested response
-    let queryVector = embeddingResult;
-    if (Array.isArray(embeddingResult) && Array.isArray(embeddingResult[0])) {
-        queryVector = embeddingResult[0];
-    }
+    if (queryVector && queryVector.length > 0) {
+        const { data: documents } = await supabase.rpc("match_documents", {
+            query_embedding: queryVector,
+            match_threshold: 0.45, // Slightly lowered threshold for better recall
+            match_count: 4,
+            filter_workspace_id: workspace_id
+        });
 
-    // --- STEP 2: Find Relevant Documents ---
-    const { data: documents, error: searchError } = await supabase.rpc("match_documents", {
-      query_embedding: queryVector,
-      match_threshold: 0.50,
-      match_count: 5,
-      filter_workspace_id: workspace_id
-    });
-
-    if (searchError) {
-        console.error("Search Error:", searchError);
-    }
-
-    // --- STEP 3: Build Context ---
-    let contextText = "No specific documents found for this query.";
-    if (documents && documents.length > 0) {
-      contextText = documents.map((doc: any) => `[Content]: ${doc.content_text}`).join("\n\n");
+        if (documents && documents.length > 0) {
+            contextText = documents.map((doc: any) => `[Doc]: ${doc.content_text}`).join("\n\n");
+        }
     }
 
     const systemPrompt = `
-    You are USWA, an AI workplace assistant.
-    Answer the user's question based ONLY on the context provided below.
-    If the answer is not in the context, say "I don't have that information in the uploaded documents."
+    You are USWA, a helpful AI assistant.
+    Answer based on the context below. If the answer isn't there, say you don't know.
     
     --- CONTEXT ---
     ${contextText}
     ---------------
     `;
 
-    // --- STEP 4: Generate Answer (Groq) ---
+    // --- Sanitize Messages ---
+    const cleanMessages = messages.map((msg: any) => {
+        return {
+            role: msg.role === 'user' ? 'user' : 'assistant', 
+            content: msg.content
+        };
+    });
+
+    // --- STEP 3: Groq Completion (UPDATED MODEL) ---
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -83,10 +92,11 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192",
+        // FIX: Updated to the new stable model
+        model: "llama-3.1-8b-instant", 
         messages: [
           { role: "system", content: systemPrompt },
-          ...messages
+          ...cleanMessages 
         ],
         temperature: 0.1
       }),

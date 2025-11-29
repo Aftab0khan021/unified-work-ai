@@ -4,19 +4,30 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User } from "lucide-react";
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type Message = {
-  id?: string;
+  id: string;
   role: "user" | "assistant";
   content: string;
   created_at?: string;
+  session_id?: string;
+};
+
+type Session = {
+  id: string;
+  title: string;
+  created_at: string;
 };
 
 const Chat = () => {
   const [user, setUser] = useState<any>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -25,16 +36,15 @@ const Chat = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // FIX 1: Get the active workspace ID
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
+  // 1. Init User & Sessions
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user);
-        // FIX 2: Load history for THIS workspace only
         if (workspaceId) {
-          fetchHistory(session.user.id, workspaceId);
+          fetchSessions(session.user.id, workspaceId);
         }
       } else {
         navigate("/auth");
@@ -42,12 +52,29 @@ const Chat = () => {
     });
   }, [navigate, workspaceId]);
 
-  const fetchHistory = async (userId: string, wsId: string) => {
+  // 2. Fetch Sessions List
+  const fetchSessions = async (userId: string, wsId: string) => {
+    const { data, error } = await supabase
+      .from("chat_sessions")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("workspace_id", wsId)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      setSessions(data);
+      // Optional: Auto-select most recent
+      // if (data.length > 0) selectSession(data[0].id); 
+    }
+  };
+
+  // 3. Select a Session (Load Messages)
+  const selectSession = async (sessionId: string) => {
+    setCurrentSessionId(sessionId);
     const { data, error } = await supabase
       .from("chat_messages")
       .select("*")
-      .eq("user_id", userId)
-      .eq("workspace_id", wsId) // Filter history by workspace
+      .eq("session_id", sessionId)
       .order("created_at", { ascending: true });
 
     if (!error && data) {
@@ -55,22 +82,37 @@ const Chat = () => {
     }
   };
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const handleSignOut = async () => {
-    localStorage.removeItem("activeWorkspaceId");
-    await supabase.auth.signOut();
-    navigate("/auth");
+  // 4. Create New Chat
+  const handleNewChat = () => {
+    setCurrentSessionId(null);
+    setMessages([]);
   };
 
+  // 5. Delete Session
+  const deleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    const { error } = await supabase.from("chat_sessions").delete().eq("id", sessionId);
+    if (!error) {
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (currentSessionId === sessionId) handleNewChat();
+      toast({ title: "Chat deleted" });
+    }
+  };
+
+  // 6. Delete Single Message (Node)
+  const deleteMessage = async (messageId: string) => {
+    const { error } = await supabase.from("chat_messages").delete().eq("id", messageId);
+    if (!error) {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+      toast({ title: "Message removed" });
+    }
+  };
+
+  // 7. Send Message Logic
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
-
-    // FIX 3: Block sending if no workspace is selected
     if (!workspaceId) {
-        toast({ title: "No Workspace", description: "Please select a workspace first.", variant: "destructive" });
+        toast({ title: "No Workspace", description: "Select a workspace first.", variant: "destructive" });
         return;
     }
 
@@ -79,161 +121,254 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-      // FIX 4: Save message with workspace_id
-      const { error: msgError } = await supabase
+      let activeSessionId = currentSessionId;
+
+      // Create Session if doesn't exist
+      if (!activeSessionId) {
+        const title = userContent.slice(0, 30) + (userContent.length > 30 ? "..." : "");
+        const { data: newSession, error: sessionError } = await supabase
+          .from("chat_sessions")
+          .insert({ 
+            user_id: user.id, 
+            workspace_id: workspaceId,
+            title: title 
+          })
+          .select()
+          .single();
+
+        if (sessionError) throw sessionError;
+        activeSessionId = newSession.id;
+        setCurrentSessionId(activeSessionId);
+        setSessions(prev => [newSession, ...prev]);
+      }
+
+      // Optimistic UI Update
+      const tempId = crypto.randomUUID();
+      const tempMsg: Message = { id: tempId, role: "user", content: userContent };
+      setMessages(prev => [...prev, tempMsg]);
+
+      // Save User Message
+      const { data: savedUserMsg, error: msgError } = await supabase
         .from("chat_messages")
         .insert({ 
             role: "user", 
             content: userContent, 
-            user_id: user.id,
-            workspace_id: workspaceId 
-        });
+            user_id: user.id, 
+            workspace_id: workspaceId,
+            session_id: activeSessionId
+        })
+        .select()
+        .single();
 
       if (msgError) throw msgError;
 
-      const tempUserMsg: Message = { role: "user", content: userContent };
-      setMessages((prev) => [...prev, tempUserMsg]);
+      // Update ID from DB
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: savedUserMsg.id } : m));
 
-      // FIX 5: Send workspace_id to the Backend Function
+      // Call AI
       const { data, error } = await supabase.functions.invoke("chat", {
         body: { 
-            messages: [...messages, tempUserMsg],
+            messages: [...messages, { role: "user", content: userContent }], // Context
             user_id: user.id,
-            workspace_id: workspaceId // <--- CRITICAL: This tells AI where to put the task
+            workspace_id: workspaceId 
         },
       });
 
       if (error) throw error;
 
       if (data?.reply) {
-        await supabase
+        const { data: savedAiMsg } = await supabase
           .from("chat_messages")
           .insert({ 
               role: "assistant", 
               content: data.reply, 
               user_id: user.id,
-              workspace_id: workspaceId
-          });
+              workspace_id: workspaceId,
+              session_id: activeSessionId
+          })
+          .select()
+          .single();
 
-        setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
-        if (user) fetchHistory(user.id, workspaceId);
+        setMessages(prev => [...prev, { 
+            id: savedAiMsg?.id || crypto.randomUUID(), 
+            role: "assistant", 
+            content: data.reply 
+        }]);
       }
     } catch (error: any) {
       console.error("Chat error:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to get response",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    sendMessage(input);
+  const handleSignOut = async () => {
+    localStorage.removeItem("activeWorkspaceId");
+    await supabase.auth.signOut();
+    navigate("/auth");
   };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // --- Sidebar Component ---
+  const SidebarList = () => (
+    <div className="flex flex-col h-full">
+      <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
+        <Plus className="w-4 h-4" /> New Chat
+      </Button>
+      <ScrollArea className="flex-1">
+        <div className="space-y-1 pr-2">
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              onClick={() => selectSession(session.id)}
+              className={`group flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer hover:bg-accent transition-colors ${
+                currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2 overflow-hidden">
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                <span className="truncate">{session.title}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => deleteSession(e, session.id)}
+              >
+                <Trash2 className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+
+  if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="flex flex-col h-screen bg-background">
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              USWA Assistant
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
-             <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
-              <Avatar className="w-8 h-8">
-                <AvatarFallback><User className="w-4 h-4" /></AvatarFallback>
-              </Avatar>
-              <span>{user.email}</span>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleSignOut}>
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </div>
+    <div className="flex h-screen bg-background overflow-hidden">
+      
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex w-64 flex-col border-r bg-card/30 p-4">
+        <div className="flex items-center gap-2 mb-6 px-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <span className="font-semibold">USWA AI</span>
         </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto container mx-auto px-4 py-8">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full space-y-4 text-center opacity-80">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <Sparkles className="w-10 h-10 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold">Welcome to USWA</h2>
-            <p className="text-muted-foreground max-w-md">
-              Ask about tasks or documents in this workspace.
-            </p>
+        <SidebarList />
+        <div className="mt-auto pt-4 border-t flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Avatar className="w-6 h-6"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
+            <span className="truncate max-w-[100px]">{user.email}</span>
           </div>
-        ) : (
-          <div className="space-y-6 max-w-3xl mx-auto">
-            {messages.map((message, i) => (
-              <div key={i} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleSignOut}><LogOut className="w-3 h-3" /></Button>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col h-full relative">
+        {/* Mobile Header */}
+        <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10">
+          <Sheet>
+            <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
+            <SheetContent side="left" className="w-64 p-4"><SidebarList /></SheetContent>
+          </Sheet>
+          <span className="font-semibold">USWA Assistant</span>
+          <div className="w-8" /> 
+        </header>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <Sparkles className="w-8 h-8 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold">How can I help you today?</h3>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <div key={message.id} className={`group flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                
+                {/* Assistant Avatar */}
                 {message.role === "assistant" && (
                   <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
                 )}
-                <div className={`rounded-2xl px-5 py-3 max-w-[80%] shadow-sm ${
+
+                {/* Message Bubble */}
+                <div className={`relative max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
                 }`}>
-                  <p className="leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  
+                  {/* Delete Node Button (Hover) */}
+                  <button 
+                    onClick={() => deleteMessage(message.id)}
+                    className={`absolute -top-2 ${message.role === 'user' ? '-left-2' : '-right-2'} p-1 rounded-full bg-background border shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive`}
+                    title="Delete message"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
+
+                {/* User Avatar */}
                 {message.role === "user" && (
                    <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
                 )}
               </div>
-            ))}
-            {isLoading && (
-              <div className="flex gap-3">
-                <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
-                <div className="rounded-2xl px-5 py-3 bg-card border flex items-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                </div>
+            ))
+          )}
+          {isLoading && (
+            <div className="flex gap-3">
+              <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
+              <div className="rounded-2xl px-4 py-3 bg-card border flex items-center">
+                <Loader2 className="w-4 h-4 animate-spin" />
               </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
 
-      <div className="border-t bg-card/50 backdrop-blur-sm p-4">
-        <form onSubmit={handleSubmit} className="flex gap-2 max-w-3xl mx-auto relative">
-          <Input 
-            value={input} 
-            onChange={(e) => setInput(e.target.value)} 
-            placeholder="Type 'Create task: ...' or ask a question" 
-            disabled={isLoading}
-            className="pr-12"
-          />
-          <Button 
-            type="button" 
-            variant="ghost" 
-            size="icon" 
-            className="absolute right-14 top-0 h-full text-muted-foreground hover:text-primary"
-            onClick={() => setShowVoiceRecorder(true)}
+        {/* Input Area */}
+        <div className="p-4 bg-background/80 backdrop-blur-sm border-t">
+          <form 
+            onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} 
+            className="max-w-3xl mx-auto relative flex gap-2"
           >
-            <Mic className="w-5 h-5" />
-          </Button>
-          <Button type="submit" disabled={isLoading || !input.trim()}>
-            <Send className="w-4 h-4" />
-          </Button>
-        </form>
+            <div className="relative flex-1">
+              <Input 
+                value={input} 
+                onChange={(e) => setInput(e.target.value)} 
+                placeholder="Message USWA..." 
+                disabled={isLoading}
+                className="pr-10"
+              />
+              <Button 
+                type="button" 
+                variant="ghost" 
+                size="icon" 
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary"
+                onClick={() => setShowVoiceRecorder(true)}
+              >
+                <Mic className="w-4 h-4" />
+              </Button>
+            </div>
+            <Button type="submit" disabled={isLoading || !input.trim()}>
+              <Send className="w-4 h-4" />
+            </Button>
+          </form>
+        </div>
       </div>
 
       {showVoiceRecorder && (
-        <VoiceRecorder onTranscript={(text) => { setInput(text); sendMessage(text); setShowVoiceRecorder(false); }} onClose={() => setShowVoiceRecorder(false)} />
+        <VoiceRecorder 
+          onTranscript={(text) => { setInput(text); sendMessage(text); setShowVoiceRecorder(false); }} 
+          onClose={() => setShowVoiceRecorder(false)} 
+        />
       )}
     </div>
   );
