@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import VoiceRecorder from "@/components/VoiceRecorder";
+
+// Define the context to match DashboardLayout
+interface WorkspaceContext {
+  currentWorkspace: { id: string; name: string } | null;
+}
 
 type Message = {
   id: string;
@@ -25,6 +30,10 @@ type Session = {
 };
 
 const Chat = () => {
+  // CRITICAL FIX: Get workspace from the App Context, not LocalStorage
+  const { currentWorkspace } = useOutletContext<WorkspaceContext>();
+  const workspaceId = currentWorkspace?.id;
+
   const [user, setUser] = useState<any>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -36,30 +45,25 @@ const Chat = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const workspaceId = localStorage.getItem("activeWorkspaceId");
-
   // 1. Init User & Fetch Sessions
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user);
-        if (workspaceId) {
-          fetchSessions(session.user.id, workspaceId);
-          subscribeToSessions(workspaceId); // <--- REALTIME LISTENER
-        } else {
-            console.warn("No activeWorkspaceId found in localStorage");
-        }
       } else {
         navigate("/auth");
       }
     });
-  }, [navigate, workspaceId]);
+  }, [navigate]);
 
-  // 2. Fetch Sessions List (The "Sidebar")
+  // Fetch sessions when workspaceId changes
+  useEffect(() => {
+    if (user?.id && workspaceId) {
+      fetchSessions(user.id, workspaceId);
+    }
+  }, [user, workspaceId]);
+
   const fetchSessions = async (userId: string, wsId: string) => {
-    console.log("Fetching sessions for workspace:", wsId);
-    
-    // Check if RLS is hiding them
     const { data, error } = await supabase
       .from("chat_sessions")
       .select("*")
@@ -67,35 +71,11 @@ const Chat = () => {
       .eq("workspace_id", wsId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching sessions:", error);
-    } else {
-      console.log("Sessions found:", data?.length);
-      setSessions(data || []);
+    if (!error && data) {
+      setSessions(data);
     }
   };
 
-  // 3. Realtime Subscription (Updates sidebar automatically)
-  const subscribeToSessions = (wsId: string) => {
-    const channel = supabase
-      .channel('public:chat_sessions')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_sessions', filter: `workspace_id=eq.${wsId}` },
-        (payload) => {
-            console.log("Session update received:", payload);
-            // Refresh full list to keep sort order correct
-            if (user?.id) fetchSessions(user.id, wsId);
-        }
-      )
-      .subscribe();
-
-    return () => {
-        supabase.removeChannel(channel);
-    };
-  };
-
-  // 4. Select a Session
   const selectSession = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
     const { data, error } = await supabase
@@ -114,12 +94,10 @@ const Chat = () => {
     setMessages([]);
   };
 
-  // 5. Delete Session (Trash Icon)
   const deleteSession = async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
     const { error } = await supabase.from("chat_sessions").delete().eq("id", sessionId);
     if (!error) {
-      // Realtime will handle the update, but we can do optimistic too
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (currentSessionId === sessionId) handleNewChat();
       toast({ title: "Chat deleted" });
@@ -136,8 +114,9 @@ const Chat = () => {
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
+    
     if (!workspaceId) {
-        toast({ title: "Error", description: "No workspace selected.", variant: "destructive" });
+        toast({ title: "Wait", description: "Loading workspace...", variant: "destructive" });
         return;
     }
 
@@ -148,14 +127,13 @@ const Chat = () => {
     try {
       let activeSessionId = currentSessionId;
 
-      // Create Session if needed
       if (!activeSessionId) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? "..." : "");
         const { data: newSession, error: sessionError } = await supabase
           .from("chat_sessions")
           .insert({ 
             user_id: user.id, 
-            workspace_id: workspaceId,
+            workspace_id: workspaceId, // Use the correct workspace
             title: title 
           })
           .select()
@@ -164,15 +142,13 @@ const Chat = () => {
         if (sessionError) throw sessionError;
         activeSessionId = newSession.id;
         setCurrentSessionId(activeSessionId);
-        // Note: Realtime subscription will also pick this up
+        setSessions(prev => [newSession, ...prev]);
       }
 
-      // Optimistic Update
       const tempId = crypto.randomUUID();
       const tempMsg: Message = { id: tempId, role: "user", content: userContent };
       setMessages(prev => [...prev, tempMsg]);
 
-      // Save User Message
       const { data: savedUserMsg, error: msgError } = await supabase
         .from("chat_messages")
         .insert({ 
@@ -187,15 +163,14 @@ const Chat = () => {
 
       if (msgError) throw msgError;
 
-      // Update ID
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: savedUserMsg.id } : m));
 
-      // Call AI
+      // Invoke Agent with correct Workspace ID
       const { data, error } = await supabase.functions.invoke("chat", {
         body: { 
             messages: [...messages, { role: "user", content: userContent }], 
             user_id: user.id,
-            workspace_id: workspaceId 
+            workspace_id: workspaceId // <--- This ensures the task goes to the right place
         },
       });
 
@@ -228,20 +203,23 @@ const Chat = () => {
     }
   };
 
+  const handleSignOut = async () => {
+    localStorage.removeItem("activeWorkspaceId");
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Sidebar List Component
   const SidebarList = () => (
     <div className="flex flex-col h-full">
       <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
         <Plus className="w-4 h-4" /> New Chat
       </Button>
       <ScrollArea className="flex-1">
-        {sessions.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center mt-4">No recent chats</p>
-        )}
+        {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
         <div className="space-y-1 pr-2">
           {sessions.map((session) => (
             <div
@@ -274,16 +252,21 @@ const Chat = () => {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Desktop Sidebar */}
       <div className="hidden md:flex w-64 flex-col border-r bg-card/30 p-4">
         <div className="flex items-center gap-2 mb-6 px-2">
           <Sparkles className="w-5 h-5 text-primary" />
           <span className="font-semibold">USWA AI</span>
         </div>
         <SidebarList />
+        <div className="mt-auto pt-4 border-t flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Avatar className="w-6 h-6"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
+            <span className="truncate max-w-[100px]">{user.email}</span>
+          </div>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleSignOut}><LogOut className="w-3 h-3" /></Button>
+        </div>
       </div>
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col h-full relative">
         <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10">
           <Sheet>
@@ -345,7 +328,7 @@ const Chat = () => {
               <Input 
                 value={input} 
                 onChange={(e) => setInput(e.target.value)} 
-                placeholder="Message USWA..." 
+                placeholder="Create task: Finish report..." 
                 disabled={isLoading}
                 className="pr-10"
               />

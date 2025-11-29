@@ -1,281 +1,129 @@
 import { useEffect, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, CheckCircle2, Circle, Trash2, Loader2, User as UserIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Plus, Loader2, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TaskBoard } from "@/components/TaskBoard";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
-type Task = {
-  id: string;
-  title: string;
-  status: "todo" | "in_progress" | "review" | "done";
-  priority: "low" | "medium" | "high" | "urgent";
-  assignee_id?: string;
-  profiles?: { full_name: string } | null;
-};
-
-type Member = {
-  user_id: string;
-  profiles: {
-    full_name: string;
-  };
-};
+interface WorkspaceContext {
+  currentWorkspace: { id: string; name: string } | null;
+}
 
 const Tasks = () => {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [selectedAssignee, setSelectedAssignee] = useState<string>("me");
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const { currentWorkspace } = useOutletContext<WorkspaceContext>();
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
-  const workspaceId = localStorage.getItem("activeWorkspaceId");
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setCurrentUserId(data.user.id);
-    });
-  }, []);
-
-  // 1. Fetch Workspace Members (Fixed with Error Handling)
-  useEffect(() => {
-    const fetchMembers = async () => {
-      if (!workspaceId) return;
-      
-      const { data, error } = await supabase
-        .from("workspace_members")
-        .select(`
-          user_id, 
-          profiles!workspace_members_user_id_fkey(full_name)
-        `) // Explicitly using the Foreign Key we just created
-        .eq("workspace_id", workspaceId);
-      
-      if (error) {
-        console.error("Error fetching members:", error);
-        // If the foreign key join fails, fallback to simple select or show error
-        // toast({ title: "Member Load Error", description: error.message, variant: "destructive" });
-      }
-      
-      if (data) {
-        // Map data to ensure structure matches
-        const formattedMembers = data.map((m: any) => ({
-          user_id: m.user_id,
-          profiles: m.profiles || { full_name: "Unknown User" }
-        }));
-        setMembers(formattedMembers);
-      }
-    };
-    fetchMembers();
-  }, [workspaceId]);
-
   const fetchTasks = async () => {
-    if (!workspaceId) return;
+    // If workspace isn't ready, don't fetch yet
+    if (!currentWorkspace?.id) return;
 
+    setIsLoading(true);
     try {
+      console.log("Fetching tasks for workspace:", currentWorkspace.id);
+      
       const { data, error } = await supabase
         .from("tasks")
-        .select(`
-          *, 
-          projects!inner(workspace_id),
-          profiles:assignee_id(full_name)
-        `)
-        .eq("projects.workspace_id", workspaceId)
+        .select("*")
+        .eq("workspace_id", currentWorkspace.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setTasks((data as any) || []);
+      setTasks(data || []);
     } catch (error: any) {
-      console.error("Error fetching tasks:", error);
-      setTasks([]);
-    }
-  };
-
-  useEffect(() => {
-    fetchTasks();
-    const channel = supabase
-      .channel('tasks-list-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [workspaceId]);
-
-  const addTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim() || !workspaceId) return;
-    setIsLoading(true);
-
-    try {
-      const { data: projects } = await supabase
-        .from("projects")
-        .select("id")
-        .eq("workspace_id", workspaceId)
-        .limit(1);
-      
-      let projectId = projects?.[0]?.id;
-
-      if (!projectId) {
-        const { data: newProject } = await supabase
-          .from("projects")
-          .insert({ name: "General", workspace_id: workspaceId })
-          .select()
-          .single();
-        projectId = newProject?.id;
-      }
-
-      const finalAssignee = selectedAssignee === "me" ? currentUserId : selectedAssignee;
-
-      const { error } = await supabase.from("tasks").insert([
-        {
-          title: newTaskTitle,
-          status: "todo",
-          priority: "medium",
-          project_id: projectId,
-          creator_id: currentUserId,
-          assignee_id: finalAssignee
-        },
-      ]);
-
-      if (error) throw error;
-
-      setNewTaskTitle("");
-      setSelectedAssignee("me");
-      fetchTasks();
-      toast({ title: "Success", description: "Task added!" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      console.error("Task Error:", error);
+      toast({ title: "Error", description: "Could not load tasks.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const toggleStatus = async (task: Task) => {
-    const newStatus = task.status === "done" ? "todo" : "done";
-    setTasks(tasks.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)));
-    await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id);
+  useEffect(() => {
     fetchTasks();
+
+    if (currentWorkspace?.id) {
+        const channel = supabase
+        .channel("public:tasks")
+        .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `workspace_id=eq.${currentWorkspace.id}` }, 
+        () => fetchTasks())
+        .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }
+  }, [currentWorkspace?.id]);
+
+  const onDragEnd = async (result: any) => {
+    if (!result.destination) return;
+    const { draggableId, destination } = result;
+
+    const newTasks = tasks.map(t => t.id === draggableId ? { ...t, status: destination.droppableId } : t);
+    setTasks(newTasks);
+
+    await supabase.from("tasks").update({ status: destination.droppableId }).eq("id", draggableId);
   };
 
-  const deleteTask = async (id: string) => {
-    setTasks(tasks.filter((t) => t.id !== id));
+  const handleDelete = async (id: string) => {
     await supabase.from("tasks").delete().eq("id", id);
-    fetchTasks();
   };
+
+  const getTasksByStatus = (status: string) => tasks.filter(t => t.status === status);
+
+  if (!currentWorkspace) return <div className="flex h-full items-center justify-center text-muted-foreground">Loading workspace...</div>;
 
   return (
-    <div className="container mx-auto px-4 py-8 h-[calc(100vh-4rem)] flex flex-col">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-          My Tasks
-        </h1>
+    <div className="h-full flex flex-col space-y-6 container mx-auto p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold tracking-tight">Tasks</h2>
+        <Button><Plus className="mr-2 h-4 w-4" /> New Task</Button>
       </div>
 
-      <Tabs defaultValue="list" className="flex-1 flex flex-col">
-        <TabsList>
-          <TabsTrigger value="list">List</TabsTrigger>
-          <TabsTrigger value="board">Board</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="board" className="flex-1 mt-4 h-full overflow-hidden">
-          <TaskBoard />
-        </TabsContent>
-
-        <TabsContent value="list" className="mt-4">
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle className="text-lg">Add New Task</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={addTask} className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder="What needs to be done?"
-                  disabled={isLoading}
-                  className="flex-1"
-                />
-                
-                <Select value={selectedAssignee} onValueChange={setSelectedAssignee} disabled={isLoading}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Assign to..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="me">Assign to Me</SelectItem>
-                    {members
-                      .filter(m => m.user_id !== currentUserId)
-                      .map((m) => (
-                      <SelectItem key={m.user_id} value={m.user_id}>
-                        {m.profiles?.full_name || "Unknown User"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Button type="submit" disabled={isLoading || !newTaskTitle}>
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />} 
-                  Add
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-3">
-            {tasks.map((task) => (
-              <Card key={task.id} className="hover:bg-accent/5 transition-colors">
-                <div className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <button onClick={() => toggleStatus(task)}>
-                      {task.status === "done" ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-500" />
-                      ) : (
-                        <Circle className="w-5 h-5 text-muted-foreground" />
-                      )}
-                    </button>
-                    <div className="flex flex-col">
-                        <span className={`truncate ${task.status === "done" ? "line-through text-muted-foreground" : ""}`}>
-                        {task.title}
-                        </span>
-                        {task.assignee_id && task.assignee_id !== currentUserId && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                <UserIcon className="w-3 h-3" /> 
-                                {task.profiles?.full_name || "Unknown"}
-                            </span>
-                        )}
-                         {task.assignee_id === currentUserId && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                (Personal)
-                            </span>
-                        )}
+      {isLoading && tasks.length === 0 ? (
+        <div className="flex justify-center p-8"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>
+      ) : (
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full min-h-[500px]">
+            {["todo", "in_progress", "done"].map((status) => (
+              <div key={status} className="flex flex-col h-full bg-muted/30 rounded-xl p-4 border">
+                <h3 className="font-semibold mb-4 capitalize flex items-center justify-between">
+                  {status.replace("_", " ")} <Badge variant="secondary">{getTasksByStatus(status).length}</Badge>
+                </h3>
+                <Droppable droppableId={status}>
+                  {(provided) => (
+                    <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 space-y-3 min-h-[100px]">
+                      {getTasksByStatus(status).map((task, index) => (
+                        <Draggable key={task.id} draggableId={task.id} index={index}>
+                          {(provided) => (
+                            <Card ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="hover:shadow-md">
+                              <CardHeader className="p-4 pb-2">
+                                <div className="flex justify-between items-start">
+                                  <CardTitle className="text-sm font-medium">{task.title}</CardTitle>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDelete(task.id)}>
+                                    <Trash2 className="h-3 w-3 hover:text-destructive" />
+                                  </Button>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="p-4 pt-0">
+                                <Badge variant="outline" className="text-[10px] mt-2">{task.priority}</Badge>
+                              </CardContent>
+                            </Card>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
                     </div>
-                  </div>
-                  
-                  <Button variant="ghost" size="icon" onClick={() => deleteTask(task.id)}>
-                    <Trash2 className="w-4 h-4 text-destructive opacity-70 hover:opacity-100" />
-                  </Button>
-                </div>
-              </Card>
-            ))}
-            {tasks.length === 0 && (
-              <div className="text-center text-muted-foreground py-8">
-                No tasks found (Note: You only see tasks created by or assigned to you).
+                  )}
+                </Droppable>
               </div>
-            )}
+            ))}
           </div>
-        </TabsContent>
-      </Tabs>
+        </DragDropContext>
+      )}
     </div>
   );
 };
 
-export default Tasks;
+export default Tasks;n
