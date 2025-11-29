@@ -3,8 +3,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Upload, Trash2, Loader2, Lock } from "lucide-react";
+import { FileText, Upload, Trash2, Loader2, Lock, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 type Document = {
   id: string;
@@ -12,15 +27,16 @@ type Document = {
   created_at: string;
   file_path: string;
   workspace_id: string;
+  assignee_id?: string | null;
 };
 
 const Documents = () => {
   const [docs, setDocs] = useState<Document[]>([]);
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   
-  // Retrieve the active workspace directly from storage
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
   const fetchDocs = async () => {
@@ -33,7 +49,7 @@ const Documents = () => {
         const { data, error } = await supabase
         .from("documents")
         .select("*")
-        .eq("workspace_id", workspaceId) // Filter by the active workspace
+        .eq("workspace_id", workspaceId) 
         .order("created_at", { ascending: false });
 
         if (error) throw error;
@@ -46,9 +62,24 @@ const Documents = () => {
     }
   };
 
-  // Initial fetch
+  const fetchMembers = async () => {
+    if (!workspaceId) return;
+    const { data } = await supabase
+      .from("workspace_members")
+      .select(`user_id, profiles:user_id(full_name)`)
+      .eq("workspace_id", workspaceId);
+    
+    if (data) {
+      setMembers(data.map((m: any) => ({
+        id: m.user_id,
+        name: m.profiles?.full_name || "Unknown"
+      })));
+    }
+  };
+
   useEffect(() => {
     fetchDocs();
+    fetchMembers();
   }, [workspaceId]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,26 +100,23 @@ const Documents = () => {
       const fileExt = file.name.split('.').pop();
       const filePath = `${workspaceId}/${crypto.randomUUID()}.${fileExt}`;
 
-      // 1. Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from('workspace_docs')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      // 2. Save metadata (CRITICAL: Include workspace_id)
       const { data: savedDoc, error: dbError } = await supabase.from("documents").insert({
-        name: file.name, // Save the original file name if your DB has this column, otherwise remove this line
+        name: file.name,
         workspace_id: workspaceId,
         file_path: filePath,
-        content_text: "Processing...", // Placeholder
+        content_text: "Processing...", 
       }).select().single();
 
       if (dbError) throw dbError;
 
       toast({ title: "File Uploaded", description: "AI processing started..." });
 
-      // 3. Trigger AI Processing
       const { error: processError } = await supabase.functions.invoke("process-doc", {
         body: { 
           document_id: savedDoc.id, 
@@ -103,9 +131,8 @@ const Documents = () => {
         toast({ title: "Success", description: "Document indexed for chat!" });
       }
 
-      // Reset input
       e.target.value = '';
-      fetchDocs(); // Refresh the list immediately
+      fetchDocs(); 
 
     } catch (error: any) {
       console.error("Upload error:", error);
@@ -132,6 +159,20 @@ const Documents = () => {
     }
   };
 
+  const handleAssign = async (docId: string, userId: string) => {
+    const { error } = await supabase
+        .from("documents")
+        .update({ assignee_id: userId === "unassigned" ? null : userId })
+        .eq("id", docId);
+    
+    if (error) {
+        toast({ title: "Error", description: "Failed to assign document", variant: "destructive" });
+    } else {
+        toast({ title: "Success", description: "Document shared!" });
+        fetchDocs();
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
@@ -140,7 +181,6 @@ const Documents = () => {
         </h1>
       </div>
 
-      {/* Upload Section */}
       <Card className="mb-8">
         <CardHeader>
           <CardTitle className="text-lg">Upload Document</CardTitle>
@@ -164,7 +204,6 @@ const Documents = () => {
         </CardContent>
       </Card>
 
-      {/* Document List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading && <p className="text-muted-foreground col-span-full text-center">Loading documents...</p>}
         
@@ -181,18 +220,41 @@ const Documents = () => {
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <FileText className="w-5 h-5 text-primary" />
                 </div>
-                <div className="truncate">
-                  {/* Fallback name if 'name' column is missing or empty */}
+                <div className="truncate max-w-[120px]">
                   <p className="font-medium truncate" title={doc.name || doc.file_path}>{doc.name || doc.file_path.split('/').pop()}</p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{new Date(doc.created_at).toLocaleDateString()}</span>
-                    <span className="flex items-center gap-1 text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">
-                       <Lock className="w-3 h-3" /> Private
-                    </span>
                   </div>
                 </div>
               </div>
               <div className="flex gap-1">
+                {/* Share / Assign Button */}
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon" title="Share Document">
+                      <UserPlus className="w-4 h-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>Share Document</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                       <div className="grid gap-2">
+                         <Label>Assign to Member</Label>
+                         <Select onValueChange={(val) => handleAssign(doc.id, val)} defaultValue={doc.assignee_id || "unassigned"}>
+                            <SelectTrigger><SelectValue placeholder="Select member" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="unassigned">Unassigned</SelectItem>
+                                {members.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                            </SelectContent>
+                         </Select>
+                         <p className="text-xs text-muted-foreground">
+                           Assigned user will be able to see and chat with this document.
+                         </p>
+                       </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
                 <Button variant="ghost" size="icon" onClick={() => deleteDoc(doc.id, doc.file_path)}>
                   <Trash2 className="w-4 h-4 text-destructive opacity-70 hover:opacity-100" />
                 </Button>
