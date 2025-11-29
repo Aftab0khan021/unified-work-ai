@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2 } from "lucide-react";
+import { AutoScheduleButton } from "@/components/AutoScheduleButton"; // <--- IMPORT THIS
 
 type Task = {
   id: string;
@@ -47,7 +48,6 @@ export default function Calendar() {
   const monthEnd = endOfMonth(currentDate);
   const calendarStart = startOfWeek(monthStart);
   const calendarEnd = endOfWeek(monthEnd);
-  
   const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const getPriorityColor = (p: string) => {
@@ -66,6 +66,11 @@ export default function Calendar() {
           <CalendarIcon className="w-8 h-8 text-primary" /> Schedule
         </h1>
         <div className="flex items-center gap-2">
+          {/* FIX: Add Auto-Schedule Button Here */}
+          <AutoScheduleButton onScheduleComplete={fetchTasks} />
+          
+          <div className="border-l h-6 mx-2" />
+          
           <Button variant="outline" size="icon" onClick={prevMonth}><ChevronLeft className="w-4 h-4" /></Button>
           <div className="text-lg font-semibold w-40 text-center">
             {format(currentDate, "MMMM yyyy")}
@@ -75,7 +80,6 @@ export default function Calendar() {
         </div>
       </div>
 
-      {/* FIX: Added overflow-auto to allow scrolling if content overflows */}
       <Card className="flex-1 flex flex-col overflow-hidden border shadow-sm min-h-0">
         <div className="grid grid-cols-7 border-b bg-muted/40 text-center py-2 text-sm font-medium text-muted-foreground shrink-0">
           <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
