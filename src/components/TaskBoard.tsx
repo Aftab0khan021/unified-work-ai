@@ -23,6 +23,7 @@ interface Task {
   priority: TaskPriority;
   due_date?: string;
   creator_id: string;
+  assignee_id?: string;
 }
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
@@ -43,34 +44,26 @@ export function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const workspaceId = localStorage.getItem("activeWorkspaceId");
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setUserId(user.id);
-    });
-  }, []);
-
   const fetchTasks = async () => {
-    if (!workspaceId || !userId) {
-      if (!workspaceId) setIsLoading(false);
+    if (!workspaceId) {
+      setIsLoading(false);
       return;
     }
 
     try {
       setIsLoading(true);
       
+      // FIX: Removed "projects!inner" join so manual tasks (without projects) can show up.
+      // FIX: Removed ".eq('creator_id', userId)" so Assignees can see tasks too.
+      // The Database RLS policies will safely handle who sees what.
       const { data, error } = await supabase
         .from("tasks")
-        .select(`
-          *,
-          projects!inner(workspace_id)
-        `)
-        .eq("projects.workspace_id", workspaceId)
-        .eq("creator_id", userId) // FIX: Filter by creator_id to show ALL your tasks (old and new)
+        .select("*") 
+        .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -86,21 +79,23 @@ export function TaskBoard() {
   useEffect(() => {
     fetchTasks();
     
-    // Subscribe to changes where creator_id matches current user
+    if (!workspaceId) return;
+
+    // FIX: Subscribe to workspace changes so Assignees see updates instantly
     const channel = supabase
       .channel('board-realtime')
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
         table: 'tasks',
-        filter: `creator_id=eq.${userId}` 
+        filter: `workspace_id=eq.${workspaceId}` 
       }, () => {
         fetchTasks();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [workspaceId, userId]);
+  }, [workspaceId]);
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
@@ -145,7 +140,7 @@ export function TaskBoard() {
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
-  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select a workspace.</div>;
+  if (!workspaceId) return <div className="text-center p-8 text-muted-foreground">Please select a workspace to view tasks.</div>;
 
   return (
     <div className="h-full flex gap-4 overflow-x-auto pb-4">
