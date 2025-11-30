@@ -20,10 +20,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { title: "Chat Assistant", url: "/chat", icon: MessageSquare },
     { title: "Team Chat", url: "/team-chat", icon: Users },
     { title: "My Tasks", url: "/tasks", icon: CheckSquare },
-    { title: "Calendar", url: "/calendar", icon: Calendar }, // <--- ADDED THIS
+    { title: "Calendar", url: "/calendar", icon: Calendar },
     { title: "Documents", url: "/documents", icon: FileText },
     { title: "Settings", url: "/settings", icon: Settings },
   ];
+
+  // FIX: Chat pages need full height and no padding to handle their own layout
+  const isChatPage = location.pathname === '/chat' || location.pathname === '/team-chat';
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -75,7 +78,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Cmd+K to Search
              </div>
           </header>
-          <main className="flex-1 overflow-auto p-6">
+          
+          {/* FIX: Conditional styling based on page type */}
+          <main className={`flex-1 min-w-0 ${isChatPage ? 'h-full overflow-hidden p-0' : 'overflow-auto p-6'}`}>
             {children}
           </main>
         </div>
