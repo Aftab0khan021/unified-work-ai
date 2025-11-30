@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Upload, Trash2, Loader2, Lock, UserPlus } from "lucide-react";
+import { FileText, Upload, Trash2, Loader2, UserPlus, Image as ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -115,7 +115,7 @@ const Documents = () => {
 
       if (dbError) throw dbError;
 
-      toast({ title: "File Uploaded", description: "AI processing started..." });
+      toast({ title: "File Uploaded", description: "AI is analyzing the content..." });
 
       const { error: processError } = await supabase.functions.invoke("process-doc", {
         body: { 
@@ -173,6 +173,8 @@ const Documents = () => {
     }
   };
 
+  const isImage = (name: string) => /\.(jpg|jpeg|png|webp|gif)$/i.test(name);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
@@ -183,7 +185,7 @@ const Documents = () => {
 
       <Card className="mb-8">
         <CardHeader>
-          <CardTitle className="text-lg">Upload Document</CardTitle>
+          <CardTitle className="text-lg">Upload Document or Image</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
@@ -192,7 +194,8 @@ const Documents = () => {
               type="file" 
               onChange={handleUpload}
               className="flex-1"
-              accept=".pdf,.txt,.md,.doc,.docx"
+              // FIX: Added image extensions to accept
+              accept=".pdf,.txt,.md,.doc,.docx,.jpg,.jpeg,.png,.webp"
               disabled={isUploading}
             />
             
@@ -209,7 +212,7 @@ const Documents = () => {
         
         {!isLoading && docs.length === 0 && (
           <div className="col-span-full text-center text-muted-foreground py-10 border-2 border-dashed rounded-xl">
-            No documents found in this workspace. Upload one to get started!
+            No documents found. Upload a PDF or Image to start!
           </div>
         )}
 
@@ -218,7 +221,7 @@ const Documents = () => {
             <CardContent className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <FileText className="w-5 h-5 text-primary" />
+                  {isImage(doc.name) ? <ImageIcon className="w-5 h-5 text-purple-500" /> : <FileText className="w-5 h-5 text-primary" />}
                 </div>
                 <div className="truncate max-w-[120px]">
                   <p className="font-medium truncate" title={doc.name || doc.file_path}>{doc.name || doc.file_path.split('/').pop()}</p>
@@ -228,7 +231,6 @@ const Documents = () => {
                 </div>
               </div>
               <div className="flex gap-1">
-                {/* Share / Assign Button */}
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button variant="ghost" size="icon" title="Share Document">

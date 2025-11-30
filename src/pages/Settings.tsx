@@ -86,18 +86,14 @@ export default function Settings() {
   };
 
   const connectGmail = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        scopes: 'https://www.googleapis.com/auth/gmail.readonly',
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
-        redirectTo: window.location.origin + '/settings'
-      }
-    });
-  };
+  await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin + '/'   // (this route always exists)
+    }
+  });
+};
+
 
   const syncEmails = async () => {
     setSyncing(true);

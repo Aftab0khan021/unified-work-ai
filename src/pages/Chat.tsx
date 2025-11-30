@@ -4,16 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X, Volume2, StopCircle, MoreHorizontal, Share2 } from "lucide-react"; 
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X, Volume2, StopCircle, Share2 } from "lucide-react"; 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type Message = {
@@ -103,8 +97,8 @@ const Chat = () => {
     setMessages([]);
   };
 
-  // FIX: Separate event handling strictly
-  const deleteSession = async (sessionId: string) => {
+  const deleteSession = async (e: React.MouseEvent | null, sessionId: string) => {
+    if (e) e.stopPropagation();
     const { error } = await supabase.from("chat_sessions").delete().eq("id", sessionId);
     if (!error) {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
@@ -113,7 +107,9 @@ const Chat = () => {
     }
   };
 
-  const shareSession = async (sessionId: string) => {
+  const shareSession = async (e: React.MouseEvent | null, sessionId: string) => {
+    if (e) e.stopPropagation();
+    
     const { data: msgs, error } = await supabase
       .from("chat_messages")
       .select("role, content")
@@ -121,17 +117,16 @@ const Chat = () => {
       .order("created_at", { ascending: true });
 
     if (error || !msgs) {
-        toast({ title: "Error", description: "Could not fetch chat to share.", variant: "destructive" });
+        toast({ title: "Error", description: "Could not fetch chat.", variant: "destructive" });
         return;
     }
 
     const text = msgs.map(m => `[${m.role === 'user' ? 'User' : 'AI'}]: ${m.content}`).join('\n\n');
-    
     try {
         await navigator.clipboard.writeText(text);
         toast({ title: "Copied!", description: "Chat history copied to clipboard." });
     } catch (err) {
-        toast({ title: "Error", description: "Failed to copy to clipboard.", variant: "destructive" });
+        toast({ title: "Error", description: "Clipboard access failed.", variant: "destructive" });
     }
   };
 
@@ -150,44 +145,24 @@ const Chat = () => {
         setIsSpeaking(false);
         return;
     }
-
     synth.cancel();
     setSpeakingMessageId(null);
-
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1; 
-        utterance.pitch = 1;
-        
         const voices = synth.getVoices();
-        const userLang = navigator.language || 'en-US';
-        const preferredVoice = voices.find(v => v.lang.startsWith(userLang)) || voices[0];
+        const preferredVoice = voices.find(v => v.lang.startsWith(navigator.language || 'en')) || voices[0];
         if (preferredVoice) utterance.voice = preferredVoice;
-
-        utterance.onstart = () => {
-            setIsSpeaking(true);
-            setSpeakingMessageId(messageId);
-        };
-        utterance.onend = () => {
-            setIsSpeaking(false);
-            setSpeakingMessageId(null);
-        };
-        utterance.onerror = () => {
-            setIsSpeaking(false);
-            setSpeakingMessageId(null);
-        };
-        
+        utterance.onstart = () => { setIsSpeaking(true); setSpeakingMessageId(messageId); };
+        utterance.onend = () => { setIsSpeaking(false); setSpeakingMessageId(null); };
+        utterance.onerror = () => { setIsSpeaking(false); setSpeakingMessageId(null); };
         synth.speak(utterance);
     }, 50);
   };
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
-    
-    if (!workspaceId) {
-        toast({ title: "No Workspace", description: "Please select a workspace first.", variant: "destructive" });
-        return;
-    }
+    if (!workspaceId) { toast({ title: "Error", description: "No workspace selected.", variant: "destructive" }); return; }
 
     const userContent = messageText;
     setInput("");
@@ -195,19 +170,12 @@ const Chat = () => {
 
     try {
       let activeSessionId = currentSessionId;
-
       if (!activeSessionId) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? "..." : "");
         const { data: newSession, error: sessionError } = await supabase
           .from("chat_sessions")
-          .insert({ 
-            user_id: user.id, 
-            workspace_id: workspaceId,
-            title: title 
-          })
-          .select()
-          .single();
-
+          .insert({ user_id: user.id, workspace_id: workspaceId, title: title })
+          .select().single();
         if (sessionError) throw sessionError;
         activeSessionId = newSession.id;
         setCurrentSessionId(activeSessionId);
@@ -220,48 +188,23 @@ const Chat = () => {
 
       const { data: savedUserMsg, error: msgError } = await supabase
         .from("chat_messages")
-        .insert({ 
-            role: "user", 
-            content: userContent, 
-            user_id: user.id, 
-            workspace_id: workspaceId,
-            session_id: activeSessionId
-        })
-        .select()
-        .single();
-
+        .insert({ role: "user", content: userContent, user_id: user.id, workspace_id: workspaceId, session_id: activeSessionId })
+        .select().single();
       if (msgError) throw msgError;
 
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: savedUserMsg.id } : m));
 
       const { data, error } = await supabase.functions.invoke("chat", {
-        body: { 
-            messages: [...messages, { role: "user", content: userContent }], 
-            user_id: user.id,
-            workspace_id: workspaceId 
-        },
+        body: { messages: [...messages, { role: "user", content: userContent }], user_id: user.id, workspace_id: workspaceId },
       });
-
       if (error) throw error;
 
       if (data?.reply) {
         const { data: savedAiMsg } = await supabase
           .from("chat_messages")
-          .insert({ 
-              role: "assistant", 
-              content: data.reply, 
-              user_id: user.id, 
-              workspace_id: workspaceId,
-              session_id: activeSessionId
-          })
-          .select()
-          .single();
-
-        setMessages(prev => [...prev, { 
-            id: savedAiMsg?.id || crypto.randomUUID(), 
-            role: "assistant", 
-            content: data.reply 
-        }]);
+          .insert({ role: "assistant", content: data.reply, user_id: user.id, workspace_id: workspaceId, session_id: activeSessionId })
+          .select().single();
+        setMessages(prev => [...prev, { id: savedAiMsg?.id || crypto.randomUUID(), role: "assistant", content: data.reply }]);
       }
     } catch (error: any) {
       console.error("Chat error:", error);
@@ -297,36 +240,31 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* Text Container: Takes available space but shrinks if needed */}
               <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-1">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 <span className="truncate">{session.title}</span>
               </div>
               
-              {/* FIX: Wrapper div to strictly stop propagation */}
-              <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                <DropdownMenu modal={false}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-foreground opacity-100"
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-32 z-50 shadow-md">
-                    <DropdownMenuItem onClick={() => shareSession(session.id)}>
-                      <Share2 className="w-4 h-4 mr-2" /> Share
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={() => deleteSession(session.id)}
-                      className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              {/* Direct Buttons: Always Visible */}
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-primary opacity-100"
+                  onClick={(e) => shareSession(e, session.id)}
+                  title="Share Chat"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-100"
+                  onClick={(e) => deleteSession(e, session.id)}
+                  title="Delete Chat"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
           ))}
@@ -338,7 +276,8 @@ const Chat = () => {
   if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    // FIX: Changed from h-screen to h-full to fit Dashboard Layout
+    <div className="flex h-full bg-background overflow-hidden">
       <div className="hidden md:flex w-64 flex-col border-r bg-card/30 p-4">
         <div className="flex items-center gap-2 mb-6 px-2">
           <Sparkles className="w-5 h-5 text-primary" />
@@ -355,20 +294,20 @@ const Chat = () => {
       </div>
 
       <div className="flex-1 flex flex-col h-full relative">
-        <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10">
+        <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
             <SheetContent side="left" className="w-64 p-4"><SidebarList /></SheetContent>
           </Sheet>
           <span className="font-semibold">USWA Assistant</span>
           
-          {/* Header Action Buttons (Backup access) */}
+          {/* Header Action Buttons (Backup) */}
           {currentSessionId ? (
              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={() => shareSession(currentSessionId!)}>
+                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}>
                     <Share2 className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon" onClick={() => deleteSession(currentSessionId!)}>
+                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}>
                     <Trash2 className="w-4 h-4 text-red-500" />
                 </Button>
              </div>
@@ -395,26 +334,12 @@ const Chat = () => {
                   <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                   
                   <div className={`flex items-center gap-2 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    
                     {message.role === 'assistant' && (
-                        <button 
-                            onClick={() => speakText(message.content, message.id)}
-                            className="p-1 rounded hover:bg-black/5 transition-colors"
-                            title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}
-                        >
+                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
                         </button>
                     )}
-                    
-                    <button 
-                        onClick={() => deleteMessage(message.id)}
-                        className={`p-1 rounded transition-colors ${
-                            message.role === 'user' 
-                            ? 'hover:bg-white/20 text-primary-foreground/70 hover:text-primary-foreground' 
-                            : 'hover:bg-black/5 opacity-50 hover:opacity-100 hover:text-destructive'
-                        }`}
-                        title="Delete Message"
-                    >
+                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive">
                         <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -425,43 +350,19 @@ const Chat = () => {
               </div>
             ))
           )}
-          {isLoading && (
-            <div className="flex gap-3">
-              <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
-              <div className="rounded-2xl px-4 py-3 bg-card border flex items-center">
-                <Loader2 className="w-4 h-4 animate-spin" />
-              </div>
-            </div>
-          )}
+          {isLoading && <div className="flex justify-center p-4"><Loader2 className="w-6 h-6 animate-spin" /></div>}
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-background/80 backdrop-blur-sm border-t">
-          <form 
-            onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} 
-            className="max-w-3xl mx-auto relative flex gap-2"
-          >
+        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0">
+          <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
             <div className="relative flex-1">
-              <Input 
-                value={input} 
-                onChange={(e) => setInput(e.target.value)} 
-                placeholder="Ask AI or create task..." 
-                disabled={isLoading}
-                className="pr-10"
-              />
-              <Button 
-                type="button" 
-                variant="ghost" 
-                size="icon" 
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary"
-                onClick={() => setShowVoiceRecorder(true)}
-              >
+              <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI or create task..." disabled={isLoading} className="pr-10" />
+              <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setShowVoiceRecorder(true)}>
                 <Mic className="w-4 h-4" />
               </Button>
             </div>
-            <Button type="submit" disabled={isLoading || !input.trim()}>
-              <Send className="w-4 h-4" />
-            </Button>
+            <Button type="submit" disabled={isLoading || !input.trim()}><Send className="w-4 h-4" /></Button>
           </form>
         </div>
       </div>

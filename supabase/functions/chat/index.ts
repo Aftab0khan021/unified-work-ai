@@ -20,8 +20,26 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // --- 1. RAG: Retrieve Relevant Documents ---
-    let contextText = "";
+    // --- 1. FETCH LATEST DOCUMENT (The Fix) ---
+    // Always fetch the most recently uploaded file to provide immediate context
+    // This fixes the issue where "What is this?" fails to find the file you just uploaded.
+    let recentContext = "";
+    const { data: recentDocs } = await supabase
+        .from("documents")
+        .select("content_text, name")
+        .eq("workspace_id", workspace_id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+    if (recentDocs && recentDocs.length > 0) {
+        const doc = recentDocs[0];
+        // Truncate extremely long docs to save token space, but keep enough for image descriptions
+        const safeText = doc.content_text.substring(0, 8000);
+        recentContext = `[MOST RECENTLY UPLOADED FILE: ${doc.name}]\nCONTENT:\n${safeText}\n\n`;
+    }
+
+    // --- 2. RAG: Retrieve Other Relevant Documents ---
+    let ragContext = "";
     const hfKey = Deno.env.get("HUGGINGFACE_API_KEY");
 
     if (hfKey) {
@@ -41,15 +59,20 @@ serve(async (req) => {
                     ? embeddingResult[0] 
                     : embeddingResult;
 
+                // Lower threshold to catch more general queries
                 const { data: documents } = await supabase.rpc("match_documents", {
                     query_embedding: queryVector,
-                    match_threshold: 0.50,
-                    match_count: 4,
+                    match_threshold: 0.15,
+                    match_count: 3,
                     filter_workspace_id: workspace_id
                 });
 
                 if (documents && documents.length > 0) {
-                    contextText = documents.map((doc: any) => `SOURCE: ${doc.content_text}`).join("\n\n");
+                    // Filter out the recent doc if it's already included to avoid duplicates
+                    const uniqueDocs = documents.filter((d: any) => 
+                        !recentContext.includes(d.content_text.substring(0, 50))
+                    );
+                    ragContext = uniqueDocs.map((doc: any) => `[RELEVANT FILE]: ${doc.content_text}`).join("\n\n");
                 }
             }
         } catch (e) {
@@ -57,7 +80,7 @@ serve(async (req) => {
         }
     }
 
-    // --- 2. System Prompt (FIXED FOR LANGUAGE) ---
+    // --- 3. System Prompt ---
     const systemPrompt = `
     You are USWA, an AI assistant.
     
@@ -67,20 +90,24 @@ serve(async (req) => {
     Return: { "tool": "create_task", "title": "Task Name", "priority": "medium" }
     
     SCENARIO 2: For questions, use the provided CONTEXT.
+    - The "MOST RECENTLY UPLOADED FILE" is likely what the user is asking about.
+    - If the content contains "[Image Analysis]", that is the description of the image they uploaded.
+    
     Return: { "tool": null, "reply": "Your helpful answer based on the context (IN THE SAME LANGUAGE AS THE USER'S QUESTION)." }
 
-    --- CONTEXT FROM DOCUMENTS ---
-    ${contextText || "No relevant documents found."}
-    ------------------------------
+    --- CONTEXT START ---
+    ${recentContext}
+    ${ragContext}
+    --- CONTEXT END ---
     `;
 
-    // --- 3. Clean Messages ---
+    // --- 4. Clean Messages ---
     const cleanMessages = messages.map((msg: any) => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
     }));
 
-    // --- 4. Call AI (Groq) ---
+    // --- 5. Call AI (Groq) ---
     const groqKey = Deno.env.get("GROQ_API_KEY");
     const completionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -102,7 +129,7 @@ serve(async (req) => {
     const rawContent = completionData.choices[0].message.content;
     let finalReply = rawContent;
 
-    // --- 5. Tool Execution ---
+    // --- 6. Tool Execution ---
     try {
         const cleanedContent = rawContent.replace(/^```json\s*|\s*```$/g, '').replace(/^```\s*|\s*```$/g, '');
         const action = JSON.parse(cleanedContent);
@@ -115,11 +142,9 @@ serve(async (req) => {
                 .limit(1)
                 .single();
             
-            // Fallback if no project found, use workspace info
             const projectId = project?.id;
 
             if (!projectId) {
-                 // Create without project if needed, or fail gracefully
                  finalReply = "I couldn't find a project to add this task to.";
             } else {
                 const { error: insertError } = await supabase
@@ -130,7 +155,7 @@ serve(async (req) => {
                         status: "todo",
                         creator_id: user_id, 
                         project_id: projectId,
-                        workspace_id: workspace_id // Ensure workspace_id is set
+                        workspace_id: workspace_id 
                     });
 
                 if (insertError) {
