@@ -258,7 +258,10 @@ const Chat = () => {
       
       let activeSessionId = currentSessionId;
       if (!activeSessionId) {
-        const title = userContent.slice(0, 30) + (userContent.length > 30 ? "..." : "");
+        // FIX: Generates a cleaner title using the first 5 words instead of strict character slicing.
+        const words = userContent.split(' ');
+        const title = words.slice(0, 5).join(' ') + (words.length > 5 ? "..." : "");
+        
         const { data: newSession, error: sessionError } = await supabase
           .from("chat_sessions")
           .insert({ user_id: user.id, workspace_id: workspaceId, title: title })
@@ -328,11 +331,12 @@ const Chat = () => {
             <div
               key={session.id}
               onClick={() => selectSession(session.id)}
-              className={`group flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer hover:bg-accent transition-colors ${
+              className={`group flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer hover:bg-accent transition-colors w-full ${
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-1">
+              {/* FIX: Parent uses flex-1 min-w-0 to force text truncation logic to work */}
+              <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 {editingSessionId === session.id ? (
                   <Input 
@@ -341,15 +345,16 @@ const Chat = () => {
                     onBlur={saveSessionTitle}
                     onKeyDown={handleRenameKeyDown}
                     autoFocus
-                    className="h-6 text-xs px-1"
+                    className="h-6 text-xs px-1 w-full"
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  <span className="truncate">{session.title}</span>
+                  // FIX: truncate class ensures text cuts off with '...' before it hits buttons
+                  <span className="truncate block">{session.title}</span>
                 )}
               </div>
               
-              {/* FIX: Removed 'opacity-0' so buttons are always visible. Added Rename button. */}
+              {/* FIX: shrink-0 ensures buttons never get squashed or hidden */}
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => startRenamingSession(e, session)} title="Rename">
                   <Pencil className="w-3.5 h-3.5" />
