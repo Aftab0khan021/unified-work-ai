@@ -300,8 +300,8 @@ const Chat = () => {
                 <span className="truncate">{session.title}</span>
               </div>
               
-              {/* FIX: Removed opacity logic. Buttons are always visible. Added min-w-fit. */}
-              <div className="flex items-center gap-1 shrink-0 min-w-fit">
+              {/* FIX: Removed min-w-fit, relying on shrink-0 to keep buttons visible */}
+              <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
@@ -359,8 +359,8 @@ const Chat = () => {
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  {/* FIX: shrink-0 and min-w-fit ensures buttons NEVER disappear even if screen is narrow */}
-                  <div className={`flex items-center gap-1 mt-2 shrink-0 min-w-fit flex-nowrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {/* FIX: ALLOW WRAPPING (flex-wrap). Removed min-w-fit. Added explicit text colors. */}
+                  <div className={`flex items-center gap-1 mt-2 shrink-0 flex-wrap ${message.role === 'user' ? 'justify-end text-primary-foreground/90' : 'justify-start text-muted-foreground'}`}>
                     {message.role === 'assistant' && (
                         <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/10 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4" />}
