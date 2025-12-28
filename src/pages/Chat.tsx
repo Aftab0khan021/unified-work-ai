@@ -228,6 +228,37 @@ const Chat = () => {
     setInput("");
   };
 
+  // NEW: Function to generate a smart title using the backend AI
+  const generateSmartTitle = async (sessionId: string, firstMessageContent: string) => {
+    try {
+        const { data, error } = await supabase.functions.invoke("chat", {
+            body: { 
+                messages: [
+                    { 
+                        role: "system", 
+                        content: "You are a helpful assistant. Analyze the following user message and generate a short, concise, and relevant title (maximum 4-6 words) for this conversation. Do not use quotes, prefixes, or special characters. Just return the plain text title." 
+                    },
+                    { role: "user", content: firstMessageContent }
+                ],
+                user_id: user.id,
+                workspace_id: workspaceId
+            },
+        });
+
+        if (!error && data?.reply) {
+            const smartTitle = data.reply.trim().replace(/^["']|["']$/g, '');
+            
+            // Update DB
+            await supabase.from("chat_sessions").update({ title: smartTitle }).eq("id", sessionId);
+            
+            // Update UI State
+            setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: smartTitle } : s));
+        }
+    } catch (e) {
+        console.error("Failed to generate smart title", e);
+    }
+  };
+
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
     if (!workspaceId) { toast({ title: "Error", description: "No workspace selected.", variant: "destructive" }); return; }
@@ -257,19 +288,25 @@ const Chat = () => {
       setInput("");
       
       let activeSessionId = currentSessionId;
+      
+      // NEW CHAT LOGIC
       if (!activeSessionId) {
-        // FIX: Generates a cleaner title using the first 5 words instead of strict character slicing.
-        const words = userContent.split(' ');
-        const title = words.slice(0, 5).join(' ') + (words.length > 5 ? "..." : "");
+        // 1. Create temporary title based on first few words (fallback)
+        const tempTitle = userContent.slice(0, 30) + "...";
         
         const { data: newSession, error: sessionError } = await supabase
           .from("chat_sessions")
-          .insert({ user_id: user.id, workspace_id: workspaceId, title: title })
+          .insert({ user_id: user.id, workspace_id: workspaceId, title: tempTitle })
           .select().single();
+          
         if (sessionError) throw sessionError;
+        
         activeSessionId = newSession.id;
         setCurrentSessionId(activeSessionId);
         setSessions(prev => [newSession, ...prev]);
+
+        // 2. Trigger Smart Title Generation in background (Fire and Forget)
+        generateSmartTitle(newSession.id, userContent);
       }
 
       const tempId = crypto.randomUUID();
@@ -335,8 +372,8 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* FIX: Parent uses flex-1 min-w-0 to force text truncation logic to work */}
-              <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
+              {/* FIX: Parent uses flex-1, min-w-0, and overflow-hidden to FORCE truncation before buttons */}
+              <div className="flex items-center gap-2 flex-1 min-w-0 mr-1 overflow-hidden">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 {editingSessionId === session.id ? (
                   <Input 
@@ -349,13 +386,13 @@ const Chat = () => {
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  // FIX: truncate class ensures text cuts off with '...' before it hits buttons
-                  <span className="truncate block">{session.title}</span>
+                  // FIX: truncate works because parent has min-w-0
+                  <span className="truncate w-full block text-left">{session.title}</span>
                 )}
               </div>
               
-              {/* FIX: shrink-0 ensures buttons never get squashed or hidden */}
-              <div className="flex items-center gap-1 shrink-0">
+              {/* FIX: Buttons are shrink-0 so they never get squeezed */}
+              <div className="flex items-center gap-0.5 shrink-0 bg-transparent">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => startRenamingSession(e, session)} title="Rename">
                   <Pencil className="w-3.5 h-3.5" />
                 </Button>
