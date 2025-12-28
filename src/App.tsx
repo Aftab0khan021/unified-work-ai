@@ -15,8 +15,9 @@ import NotFound from "./pages/NotFound";
 import Tasks from "./pages/Tasks";
 import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents"; 
-import Calendar from "./pages/Calendar"; // <--- ADDED
+import Calendar from "./pages/Calendar"; 
 import Settings from "./pages/Settings";
+import UpdatePassword from "./pages/UpdatePassword"; // <--- ADDED
 import DashboardLayout from "./components/DashboardLayout";
 
 const queryClient = new QueryClient();
@@ -51,13 +52,14 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/update-password" element={<UpdatePassword />} /> {/* <--- ADDED */}
 
           {/* Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
           <Route path="/team-chat" element={<ProtectedRoute><TeamChat /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} /> {/* <--- ADDED */}
+          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
           <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           
