@@ -28,7 +28,7 @@ const Auth = () => {
       });
 
       if (error) throw error;
-      navigate("/chat");
+      navigate("/dashboard");
     } catch (error: any) {
       toast({
         title: "Error signing in",
@@ -52,7 +52,7 @@ const Auth = () => {
           data: {
             full_name: fullName,
           },
-          emailRedirectTo: `${window.location.origin}/chat`,
+          emailRedirectTo: `${window.location.origin}/dashboard`,
         },
       });
 
@@ -63,7 +63,7 @@ const Auth = () => {
         description: "You can now sign in with your credentials.",
       });
       
-      navigate("/chat");
+      navigate("/dashboard");
     } catch (error: any) {
       toast({
         title: "Error creating account",
@@ -81,7 +81,7 @@ const Auth = () => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/chat`,
+          redirectTo: `${window.location.origin}/dashboard`,
         },
       });
 
