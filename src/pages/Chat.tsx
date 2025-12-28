@@ -294,14 +294,14 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* FIX: Force title to shrink so buttons always have space */}
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+              {/* FIX: Title shrinks (min-w-0), Buttons DO NOT shrink (shrink-0) */}
+              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-1">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 <span className="truncate">{session.title}</span>
               </div>
               
-              {/* FIX: Buttons are shrink-0 and visible */}
-              <div className="flex items-center gap-1 shrink-0">
+              {/* FIX: Removed opacity logic. Buttons are always visible. Added min-w-fit. */}
+              <div className="flex items-center gap-1 shrink-0 min-w-fit">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
