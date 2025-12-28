@@ -299,7 +299,8 @@ const Chat = () => {
                 <span className="truncate">{session.title}</span>
               </div>
               
-              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity bg-background/50 rounded-md backdrop-blur-sm">
+              {/* FIX: Removed opacity-0 so buttons are ALWAYS visible */}
+              <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
@@ -357,8 +358,8 @@ const Chat = () => {
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  {/* MESSAGE ACTIONS - Now clearly visible and won't be hidden */}
-                  <div className={`flex items-center gap-1 mt-2 shrink-0 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {/* FIX: Added flex-wrap so buttons wrap instead of disappearing when width is small */}
+                  <div className={`flex items-center gap-1 mt-2 shrink-0 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {message.role === 'assistant' && (
                         <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/10 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4" />}
@@ -425,12 +426,11 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                {/* Fixed minSize to prevent disappearing content */}
-                <ResizablePanel defaultSize={25} minSize={15} maxSize={40} className="border-r bg-muted/30">
+                <ResizablePanel defaultSize={20} minSize={12} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={75}>
+                <ResizablePanel defaultSize={80}>
                     {renderChatArea()}
                 </ResizablePanel>
             </ResizablePanelGroup>
