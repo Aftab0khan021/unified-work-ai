@@ -4,10 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, X, Volume2, StopCircle, Share2 } from "lucide-react"; 
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, Volume2, StopCircle, Share2 } from "lucide-react"; 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"; // <--- NEW IMPORT
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type Message = {
@@ -225,12 +226,15 @@ const Chat = () => {
   }, [messages]);
 
   const SidebarList = () => (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full p-2">
+       <div className="flex items-center gap-2 mb-4 px-2 pt-2">
+          <Sparkles className="w-5 h-5 text-primary" />
+          <span className="font-semibold">USWA AI</span>
+        </div>
       <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
         <Plus className="w-4 h-4" /> New Chat
       </Button>
-      {/* FIX: Bounded scroll area with proper overflow handling */}
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1">
         {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
         <div className="space-y-1 pr-2 pb-2">
           {sessions.map((session) => (
@@ -247,22 +251,10 @@ const Chat = () => {
               </div>
               
               <div className="flex items-center gap-1 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-primary opacity-100"
-                  onClick={(e) => shareSession(e, session.id)}
-                  title="Share Chat"
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary opacity-100" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-100"
-                  onClick={(e) => deleteSession(e, session.id)}
-                  title="Delete Chat"
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-100" onClick={(e) => deleteSession(e, session.id)} title="Delete Chat">
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -270,50 +262,33 @@ const Chat = () => {
           ))}
         </div>
       </ScrollArea>
-    </div>
-  );
-
-  if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
-
-  return (
-    <div className="flex h-full bg-background overflow-hidden w-full">
-      {/* FIX: Ensure visibility on laptop by removing transparent bg and using standard border */}
-      <div className="hidden md:flex w-64 shrink-0 flex-col border-r bg-background h-full p-4">
-        <div className="flex items-center gap-2 mb-6 px-2">
-          <Sparkles className="w-5 h-5 text-primary" />
-          <span className="font-semibold">USWA AI</span>
-        </div>
-        <SidebarList />
-        <div className="mt-auto pt-4 border-t flex items-center justify-between">
+       <div className="mt-auto pt-4 border-t flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Avatar className="w-6 h-6"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
             <span className="truncate max-w-[100px]">{user.email}</span>
           </div>
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleSignOut}><LogOut className="w-3 h-3" /></Button>
         </div>
-      </div>
+    </div>
+  );
 
-      <div className="flex-1 flex flex-col h-full min-w-0 relative">
+  const ChatArea = () => (
+    <div className="flex flex-col h-full w-full min-w-0">
         <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
-            <SheetContent side="left" className="w-64 p-4"><SidebarList /></SheetContent>
+            <SheetContent side="left" className="w-64 p-0"><SidebarList /></SheetContent>
           </Sheet>
           <span className="font-semibold">USWA Assistant</span>
-          
           {currentSessionId ? (
              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}>
-                    <Share2 className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}>
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                </Button>
+                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}><Share2 className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
              </div>
           ) : <div className="w-8" />}
         </header>
 
-        {/* FIX: overscroll-none prevents rubber-banding which hides content. min-h-0 crucial for flex child scrolling */}
+        {/* MESSAGES - Ensure min-h-0 so it scrolls instead of pushing page */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
@@ -332,16 +307,12 @@ const Chat = () => {
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  
                   <div className={`flex items-center gap-2 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {message.role === 'assistant' && (
-                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
+                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors">
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
                         </button>
                     )}
-                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive">
-                        <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
                 {message.role === "user" && (
@@ -354,10 +325,11 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* INPUT - shrink-0 prevents it from disappearing */}
         <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
             <div className="relative flex-1">
-              <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI or create task..." disabled={isLoading} className="pr-10" />
+              <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI..." disabled={isLoading} className="pr-10" />
               <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setShowVoiceRecorder(true)}>
                 <Mic className="w-4 h-4" />
               </Button>
@@ -365,7 +337,31 @@ const Chat = () => {
             <Button type="submit" disabled={isLoading || !input.trim()}><Send className="w-4 h-4" /></Button>
           </form>
         </div>
-      </div>
+    </div>
+  );
+
+  if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+
+  return (
+    <div className="h-full w-full bg-background overflow-hidden">
+        {/* DESKTOP: Resizable Layout */}
+        <div className="hidden md:flex h-full">
+            <ResizablePanelGroup direction="horizontal">
+                <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="border-r bg-muted/30">
+                    <SidebarList />
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={80}>
+                    <ChatArea />
+                </ResizablePanel>
+            </ResizablePanelGroup>
+        </div>
+
+        {/* MOBILE: Standard Layout */}
+        <div className="md:hidden h-full flex flex-col">
+            <ChatArea />
+        </div>
+
       {showVoiceRecorder && <VoiceRecorder onTranscript={(t) => { setInput(t); sendMessage(t); setShowVoiceRecorder(false); }} onClose={() => setShowVoiceRecorder(false)} />}
     </div>
   );
