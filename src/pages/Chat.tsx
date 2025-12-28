@@ -275,17 +275,17 @@ const Chat = () => {
 
   // Reusable JSX for the Sidebar List to avoid code duplication
   const renderSidebarList = () => (
-    <div className="flex flex-col h-full p-2">
-       <div className="flex items-center gap-2 mb-4 px-2 pt-2">
-          <Sparkles className="w-5 h-5 text-primary" />
-          <span className="font-semibold">USWA AI</span>
+    <div className="flex flex-col h-full p-2 overflow-hidden">
+       <div className="flex items-center gap-2 mb-4 px-2 pt-2 shrink-0 overflow-hidden">
+          <Sparkles className="w-5 h-5 text-primary shrink-0" />
+          <span className="font-semibold truncate">USWA AI</span>
         </div>
-      <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
-        <Plus className="w-4 h-4" /> New Chat
+      <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4 shrink-0 overflow-hidden" variant="outline">
+        <Plus className="w-4 h-4 shrink-0" /> <span className="truncate">New Chat</span>
       </Button>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 -mx-2 px-2">
         {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
-        <div className="space-y-1 pr-2 pb-2">
+        <div className="space-y-1 pb-2">
           {sessions.map((session) => (
             <div
               key={session.id}
@@ -294,16 +294,16 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-1">
+              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-2">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 <span className="truncate">{session.title}</span>
               </div>
               
-              <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary opacity-100" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
+              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-100" onClick={(e) => deleteSession(e, session.id)} title="Delete Chat">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={(e) => deleteSession(e, session.id)} title="Delete Chat">
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -311,12 +311,12 @@ const Chat = () => {
           ))}
         </div>
       </ScrollArea>
-       <div className="mt-auto pt-4 border-t flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Avatar className="w-6 h-6"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
-            <span className="truncate max-w-[100px]">{user.email}</span>
+       <div className="mt-auto pt-4 border-t flex items-center justify-between shrink-0 overflow-hidden">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden flex-1 min-w-0">
+            <Avatar className="w-6 h-6 shrink-0"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
+            <span className="truncate">{user.email}</span>
           </div>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleSignOut}><LogOut className="w-3 h-3" /></Button>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 ml-2" onClick={handleSignOut}><LogOut className="w-3 h-3" /></Button>
         </div>
     </div>
   );
@@ -338,7 +338,7 @@ const Chat = () => {
           ) : <div className="w-8" />}
         </header>
 
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none w-full">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
@@ -386,7 +386,7 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
+        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20 w-full">
           {editingMessageId && (
             <div className="flex items-center justify-between text-xs text-muted-foreground mb-2 px-2">
                 <span>Editing message...</span>
@@ -422,13 +422,13 @@ const Chat = () => {
   return (
     <div className="h-full w-full bg-background overflow-hidden">
         {/* DESKTOP: Resizable Layout */}
-        <div className="hidden md:flex h-full">
-            <ResizablePanelGroup direction="horizontal">
-                <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="border-r bg-muted/30">
+        <div className="hidden md:flex h-full w-full">
+            <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+                <ResizablePanel defaultSize={25} minSize={20} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={80}>
+                <ResizablePanel defaultSize={75}>
                     {renderChatArea()}
                 </ResizablePanel>
             </ResizablePanelGroup>
