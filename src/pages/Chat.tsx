@@ -228,7 +228,7 @@ const Chat = () => {
     setInput("");
   };
 
-  // NEW: Function to generate a smart title using the backend AI
+  // NEW: Function to generate a smart, SHORT title
   const generateSmartTitle = async (sessionId: string, firstMessageContent: string) => {
     try {
         const { data, error } = await supabase.functions.invoke("chat", {
@@ -236,7 +236,8 @@ const Chat = () => {
                 messages: [
                     { 
                         role: "system", 
-                        content: "You are a helpful assistant. Analyze the following user message and generate a short, concise, and relevant title (maximum 4-6 words) for this conversation. Do not use quotes, prefixes, or special characters. Just return the plain text title." 
+                        // FIX: Explicitly instructed to keep it very short (max 4 words)
+                        content: "Analyze the following user message and generate a very short, specific title (maximum 3-4 words) for this conversation. Example: 'Project Marketing Plan', 'React Bug Fix', 'Trip to Paris'. Do not use quotes." 
                     },
                     { role: "user", content: firstMessageContent }
                 ],
@@ -291,8 +292,9 @@ const Chat = () => {
       
       // NEW CHAT LOGIC
       if (!activeSessionId) {
-        // 1. Create temporary title based on first few words (fallback)
-        const tempTitle = userContent.slice(0, 30) + "...";
+        // FIX: Fallback is now just the first 4 words, preventing ugly character slicing
+        const words = userContent.split(' ');
+        const tempTitle = words.slice(0, 4).join(' ') + (words.length > 4 ? "..." : "");
         
         const { data: newSession, error: sessionError } = await supabase
           .from("chat_sessions")
@@ -305,7 +307,7 @@ const Chat = () => {
         setCurrentSessionId(activeSessionId);
         setSessions(prev => [newSession, ...prev]);
 
-        // 2. Trigger Smart Title Generation in background (Fire and Forget)
+        // Trigger Smart AI Title Generation in background
         generateSmartTitle(newSession.id, userContent);
       }
 
@@ -372,7 +374,7 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* FIX: Parent uses flex-1, min-w-0, and overflow-hidden to FORCE truncation before buttons */}
+              {/* FIX: Flexible container with min-w-0 ensures truncation happens properly */}
               <div className="flex items-center gap-2 flex-1 min-w-0 mr-1 overflow-hidden">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 {editingSessionId === session.id ? (
@@ -386,13 +388,15 @@ const Chat = () => {
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  // FIX: truncate works because parent has min-w-0
-                  <span className="truncate w-full block text-left">{session.title}</span>
+                  // FIX: Text truncates with ... if it exceeds 3-4 words or width, keeping buttons visible
+                  <span className="truncate w-full block text-left" title={session.title}>
+                    {session.title}
+                  </span>
                 )}
               </div>
               
-              {/* FIX: Buttons are shrink-0 so they never get squeezed */}
-              <div className="flex items-center gap-0.5 shrink-0 bg-transparent">
+              {/* FIX: Buttons are shrink-0 so they never collapse */}
+              <div className="flex items-center gap-0.5 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => startRenamingSession(e, session)} title="Rename">
                   <Pencil className="w-3.5 h-3.5" />
                 </Button>
@@ -421,13 +425,13 @@ const Chat = () => {
   const renderChatArea = () => (
     <div className="flex flex-col h-full w-full min-w-0">
         <header className="border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
+          {/* FIX: Header title container also made flexible */}
           <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
             <Sheet>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden shrink-0"><Menu className="w-5 h-5" /></Button></SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">{renderSidebarList()}</SheetContent>
             </Sheet>
             
-            {/* Header Title with Edit Logic */}
             {currentSessionId && editingSessionId === currentSessionId ? (
                 <Input 
                   value={editSessionTitle}
@@ -444,7 +448,6 @@ const Chat = () => {
             )}
           </div>
           
-          {/* Header Actions - Same as Sidebar */}
           {currentSessionId ? (
              <div className="flex gap-1 shrink-0 ml-2">
                 <Button variant="ghost" size="icon" onClick={(e) => {
