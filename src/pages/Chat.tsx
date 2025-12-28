@@ -294,12 +294,13 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-2">
+              {/* FIX: Force title to shrink so buttons always have space */}
+              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 <span className="truncate">{session.title}</span>
               </div>
               
-              {/* FIX: Removed opacity-0 so buttons are ALWAYS visible */}
+              {/* FIX: Buttons are shrink-0 and visible */}
               <div className="flex items-center gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
@@ -358,8 +359,8 @@ const Chat = () => {
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  {/* FIX: Added flex-wrap so buttons wrap instead of disappearing when width is small */}
-                  <div className={`flex items-center gap-1 mt-2 shrink-0 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {/* FIX: shrink-0 and min-w-fit ensures buttons NEVER disappear even if screen is narrow */}
+                  <div className={`flex items-center gap-1 mt-2 shrink-0 min-w-fit flex-nowrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {message.role === 'assistant' && (
                         <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/10 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4" />}
@@ -426,7 +427,8 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                <ResizablePanel defaultSize={20} minSize={12} maxSize={40} className="border-r bg-muted/30">
+                {/* Fixed minSize to prevent disappearing content */}
+                <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
