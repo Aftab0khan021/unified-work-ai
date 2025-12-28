@@ -275,7 +275,7 @@ const Chat = () => {
 
   // Reusable JSX for the Sidebar List to avoid code duplication
   const renderSidebarList = () => (
-    <div className="flex flex-col h-full p-2 overflow-hidden">
+    <div className="flex flex-col h-full p-2 overflow-hidden w-full">
        <div className="flex items-center gap-2 mb-4 px-2 pt-2 shrink-0 overflow-hidden">
           <Sparkles className="w-5 h-5 text-primary shrink-0" />
           <span className="font-semibold truncate">USWA AI</span>
@@ -283,7 +283,7 @@ const Chat = () => {
       <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4 shrink-0 overflow-hidden" variant="outline">
         <Plus className="w-4 h-4 shrink-0" /> <span className="truncate">New Chat</span>
       </Button>
-      <ScrollArea className="flex-1 -mx-2 px-2">
+      <ScrollArea className="flex-1 -mx-2 px-2 w-full">
         {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
         <div className="space-y-1 pb-2">
           {sessions.map((session) => (
@@ -311,7 +311,7 @@ const Chat = () => {
           ))}
         </div>
       </ScrollArea>
-       <div className="mt-auto pt-4 border-t flex items-center justify-between shrink-0 overflow-hidden">
+       <div className="mt-auto pt-4 border-t flex items-center justify-between shrink-0 overflow-hidden w-full">
           <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden flex-1 min-w-0">
             <Avatar className="w-6 h-6 shrink-0"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
             <span className="truncate">{user.email}</span>
@@ -350,14 +350,15 @@ const Chat = () => {
             messages.map((message) => (
               <div key={message.id} className={`group flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 {message.role === "assistant" && (
-                  <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
+                  <Avatar className="w-8 h-8 mt-1 shrink-0"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
                 )}
-                <div className={`relative max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                <div className={`relative max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
                 }`}>
-                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  <div className={`flex items-center gap-1 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {/* FIX: flex-wrap ensures buttons don't disappear on narrow screens */}
+                  <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {message.role === 'assistant' && (
                         <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
@@ -377,7 +378,7 @@ const Chat = () => {
                   </div>
                 </div>
                 {message.role === "user" && (
-                   <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
+                   <Avatar className="w-8 h-8 mt-1 shrink-0"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
                 )}
               </div>
             ))
@@ -424,11 +425,12 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                <ResizablePanel defaultSize={25} minSize={20} maxSize={40} className="border-r bg-muted/30">
+                {/* FIX: Lower minSize to 12 allows panel to be narrower without breaking layout */}
+                <ResizablePanel defaultSize={20} minSize={12} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={75}>
+                <ResizablePanel defaultSize={80}>
                     {renderChatArea()}
                 </ResizablePanel>
             </ResizablePanelGroup>
