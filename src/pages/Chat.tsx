@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, Volume2, StopCircle, Share2, Copy, Edit2 } from "lucide-react"; 
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, Volume2, StopCircle, Copy, Edit2, X, Check } from "lucide-react"; 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -36,6 +36,9 @@ const Chat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   
+  // EDIT STATE
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
   // TTS State
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
@@ -82,6 +85,7 @@ const Chat = () => {
 
   const selectSession = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
+    setEditingMessageId(null); // Clear edit mode when switching
     const { data, error } = await supabase
       .from("chat_messages")
       .select("*")
@@ -95,7 +99,9 @@ const Chat = () => {
 
   const handleNewChat = () => {
     setCurrentSessionId(null);
+    setEditingMessageId(null);
     setMessages([]);
+    setInput("");
   };
 
   const deleteSession = async (e: React.MouseEvent | null, sessionId: string) => {
@@ -135,6 +141,10 @@ const Chat = () => {
     const { error } = await supabase.from("chat_messages").delete().eq("id", messageId);
     if (!error) {
       setMessages(prev => prev.filter(m => m.id !== messageId));
+      if (editingMessageId === messageId) {
+        setEditingMessageId(null);
+        setInput("");
+      }
       toast({ title: "Message removed" });
     }
   };
@@ -161,7 +171,6 @@ const Chat = () => {
     }, 50);
   };
 
-  // NEW: Handle Copy
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -171,20 +180,51 @@ const Chat = () => {
     }
   };
 
-  // NEW: Handle Edit (Populates input)
-  const handleEdit = (text: string) => {
-    setInput(text);
+  const handleEdit = (message: Message) => {
+    setEditingMessageId(message.id);
+    setInput(message.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInput("");
   };
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
     if (!workspaceId) { toast({ title: "Error", description: "No workspace selected.", variant: "destructive" }); return; }
 
-    const userContent = messageText;
-    setInput("");
     setIsLoading(true);
 
     try {
+      // ---------------------------------------------------------
+      // CASE 1: EDITING EXISTING MESSAGE
+      // ---------------------------------------------------------
+      if (editingMessageId) {
+        const { error } = await supabase
+          .from("chat_messages")
+          .update({ content: messageText })
+          .eq("id", editingMessageId);
+
+        if (error) throw error;
+
+        // Update local state
+        setMessages(prev => prev.map(m => m.id === editingMessageId ? { ...m, content: messageText } : m));
+        
+        // Reset Logic
+        setEditingMessageId(null);
+        setInput("");
+        setIsLoading(false);
+        toast({ title: "Message updated" });
+        return; 
+      }
+
+      // ---------------------------------------------------------
+      // CASE 2: SENDING NEW MESSAGE
+      // ---------------------------------------------------------
+      const userContent = messageText;
+      setInput("");
+      
       let activeSessionId = currentSessionId;
       if (!activeSessionId) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? "..." : "");
@@ -240,6 +280,8 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // --- SUB-COMPONENTS (Defined inline to use state without focus loss) ---
+  
   const SidebarList = () => (
     <div className="flex flex-col h-full p-2">
        <div className="flex items-center gap-2 mb-4 px-2 pt-2">
@@ -287,95 +329,9 @@ const Chat = () => {
     </div>
   );
 
-  const ChatArea = () => (
-    <div className="flex flex-col h-full w-full min-w-0">
-        <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
-          <Sheet>
-            <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
-            <SheetContent side="left" className="w-64 p-0"><SidebarList /></SheetContent>
-          </Sheet>
-          <span className="font-semibold">USWA Assistant</span>
-          {currentSessionId ? (
-             <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}><Share2 className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
-             </div>
-          ) : <div className="w-8" />}
-        </header>
-
-        {/* MESSAGES */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-primary" />
-              </div>
-              <h3 className="text-xl font-semibold">How can I help you?</h3>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} className={`group flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                {message.role === "assistant" && (
-                  <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
-                )}
-                <div className={`relative max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                  message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
-                }`}>
-                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  
-                  {/* Message Actions (Edit, Copy, TTS, Delete) */}
-                  <div className={`flex items-center gap-1 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    
-                    {/* TTS (AI Only) */}
-                    {message.role === 'assistant' && (
-                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
-                            {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
-                        </button>
-                    )}
-
-                    {/* Copy (Both) */}
-                    <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Copy Text">
-                        <Copy className="w-4 h-4" />
-                    </button>
-
-                    {/* Edit (User Only) */}
-                    {message.role === 'user' && (
-                         <button onClick={() => handleEdit(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Edit Message">
-                            <Edit2 className="w-4 h-4" />
-                         </button>
-                    )}
-
-                    {/* Delete (Both) */}
-                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive opacity-70 hover:opacity-100" title="Delete Message">
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                {message.role === "user" && (
-                   <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
-                )}
-              </div>
-            ))
-          )}
-          {isLoading && <div className="flex justify-center p-4"><Loader2 className="w-6 h-6 animate-spin" /></div>}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* INPUT */}
-        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
-          <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
-            <div className="relative flex-1">
-              <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI..." disabled={isLoading} className="pr-10" />
-              <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setShowVoiceRecorder(true)}>
-                <Mic className="w-4 h-4" />
-              </Button>
-            </div>
-            <Button type="submit" disabled={isLoading || !input.trim()}><Send className="w-4 h-4" /></Button>
-          </form>
-        </div>
-    </div>
-  );
-
+  // We intentionally inline the Chat content here to avoid the "Component defined inside Component" bug
+  // This ensures the INPUT maintains focus.
+  
   if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
@@ -388,14 +344,185 @@ const Chat = () => {
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={80}>
-                    <ChatArea />
+                    {/* CHAT AREA CONTENT INLINED */}
+                    <div className="flex flex-col h-full w-full min-w-0">
+                        {/* MESSAGES */}
+                        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
+                          {messages.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+                              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                <Sparkles className="w-8 h-8 text-primary" />
+                              </div>
+                              <h3 className="text-xl font-semibold">How can I help you?</h3>
+                            </div>
+                          ) : (
+                            messages.map((message) => (
+                              <div key={message.id} className={`group flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                                {message.role === "assistant" && (
+                                  <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
+                                )}
+                                <div className={`relative max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                                  message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
+                                }`}>
+                                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                                  
+                                  <div className={`flex items-center gap-1 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    {message.role === 'assistant' && (
+                                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
+                                            {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
+                                        </button>
+                                    )}
+                                    <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Copy Text">
+                                        <Copy className="w-4 h-4" />
+                                    </button>
+                                    {message.role === 'user' && (
+                                         <button onClick={() => handleEdit(message)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Edit Message">
+                                            <Edit2 className="w-4 h-4" />
+                                         </button>
+                                    )}
+                                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive opacity-70 hover:opacity-100" title="Delete Message">
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                                {message.role === "user" && (
+                                   <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
+                                )}
+                              </div>
+                            ))
+                          )}
+                          {isLoading && <div className="flex justify-center p-4"><Loader2 className="w-6 h-6 animate-spin" /></div>}
+                          <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* INPUT */}
+                        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
+                          {editingMessageId && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground mb-2 px-2">
+                                <span>Editing message...</span>
+                                <button onClick={cancelEdit} className="hover:text-primary flex items-center gap-1"><X className="w-3 h-3" /> Cancel</button>
+                            </div>
+                          )}
+                          <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
+                            <div className="relative flex-1">
+                              <Input 
+                                autoFocus
+                                value={input} 
+                                onChange={(e) => setInput(e.target.value)} 
+                                placeholder={editingMessageId ? "Update your message..." : "Ask AI..."}
+                                disabled={isLoading} 
+                                className="pr-10" 
+                              />
+                              {!editingMessageId && (
+                                  <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setShowVoiceRecorder(true)}>
+                                    <Mic className="w-4 h-4" />
+                                  </Button>
+                              )}
+                            </div>
+                            <Button type="submit" disabled={isLoading || !input.trim()}>
+                                {editingMessageId ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                            </Button>
+                          </form>
+                        </div>
+                    </div>
+                    {/* END CHAT AREA */}
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>
 
         {/* MOBILE: Standard Layout */}
-        <div className="md:hidden h-full flex flex-col">
-            <ChatArea />
+        <div className="md:hidden h-full flex flex-col w-full">
+            <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
+              <Sheet>
+                <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
+                <SheetContent side="left" className="w-64 p-0"><SidebarList /></SheetContent>
+              </Sheet>
+              <span className="font-semibold">USWA Assistant</span>
+              {currentSessionId ? (
+                 <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}><Share2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
+                 </div>
+              ) : <div className="w-8" />}
+            </header>
+            
+            {/* Same chat logic duplicated for mobile to ensure clean separation */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
+                {messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Sparkles className="w-8 h-8 text-primary" />
+                    </div>
+                    <h3 className="text-xl font-semibold">How can I help you?</h3>
+                </div>
+                ) : (
+                messages.map((message) => (
+                    <div key={message.id} className={`group flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    {message.role === "assistant" && (
+                        <Avatar className="w-8 h-8 mt-1"><AvatarFallback><Sparkles className="w-4 h-4 text-primary" /></AvatarFallback></Avatar>
+                    )}
+                    <div className={`relative max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                        message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
+                    }`}>
+                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                        
+                        <div className={`flex items-center gap-1 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        {message.role === 'assistant' && (
+                            <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
+                                {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
+                            </button>
+                        )}
+                        <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Copy Text">
+                            <Copy className="w-4 h-4" />
+                        </button>
+                        {message.role === 'user' && (
+                                <button onClick={() => handleEdit(message)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Edit Message">
+                                <Edit2 className="w-4 h-4" />
+                                </button>
+                        )}
+                        <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive opacity-70 hover:opacity-100" title="Delete Message">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                        </div>
+                    </div>
+                    {message.role === "user" && (
+                        <Avatar className="w-8 h-8 mt-1"><AvatarFallback><User className="w-4 h-4" /></AvatarFallback></Avatar>
+                    )}
+                    </div>
+                ))
+                )}
+                {isLoading && <div className="flex justify-center p-4"><Loader2 className="w-6 h-6 animate-spin" /></div>}
+                <div ref={messagesEndRef} />
+            </div>
+
+            <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
+                {editingMessageId && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-2 px-2">
+                    <span>Editing message...</span>
+                    <button onClick={cancelEdit} className="hover:text-primary flex items-center gap-1"><X className="w-3 h-3" /> Cancel</button>
+                </div>
+                )}
+                <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
+                <div className="relative flex-1">
+                    <Input 
+                    autoFocus
+                    value={input} 
+                    onChange={(e) => setInput(e.target.value)} 
+                    placeholder={editingMessageId ? "Update your message..." : "Ask AI..."}
+                    disabled={isLoading} 
+                    className="pr-10" 
+                    />
+                    {!editingMessageId && (
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setShowVoiceRecorder(true)}>
+                        <Mic className="w-4 h-4" />
+                        </Button>
+                    )}
+                </div>
+                <Button type="submit" disabled={isLoading || !input.trim()}>
+                    {editingMessageId ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                </Button>
+                </form>
+            </div>
         </div>
 
       {showVoiceRecorder && <VoiceRecorder onTranscript={(t) => { setInput(t); sendMessage(t); setShowVoiceRecorder(false); }} onClose={() => setShowVoiceRecorder(false)} />}
