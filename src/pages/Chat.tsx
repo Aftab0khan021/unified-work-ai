@@ -228,7 +228,7 @@ const Chat = () => {
     setInput("");
   };
 
-  // NEW: Function to generate a smart, SHORT title
+  // NEW: Updated Smart Title Logic
   const generateSmartTitle = async (sessionId: string, firstMessageContent: string) => {
     try {
         const { data, error } = await supabase.functions.invoke("chat", {
@@ -236,8 +236,8 @@ const Chat = () => {
                 messages: [
                     { 
                         role: "system", 
-                        // FIX: Explicitly instructed to keep it very short (max 4 words)
-                        content: "Analyze the following user message and generate a very short, specific title (maximum 3-4 words) for this conversation. Example: 'Project Marketing Plan', 'React Bug Fix', 'Trip to Paris'. Do not use quotes." 
+                        // FIX: Strict instruction to ONLY generate a title and NOT reply to the content.
+                        content: "You are a title generator. Generate a concise label (3-5 words) for this chat based on the user's message. Do not answer the user's question. Do not use quotes. Output ONLY the title." 
                     },
                     { role: "user", content: firstMessageContent }
                 ],
@@ -247,12 +247,10 @@ const Chat = () => {
         });
 
         if (!error && data?.reply) {
+            // FIX: Ensure we clean up any accidental quotes or extra whitespace
             const smartTitle = data.reply.trim().replace(/^["']|["']$/g, '');
             
-            // Update DB
             await supabase.from("chat_sessions").update({ title: smartTitle }).eq("id", sessionId);
-            
-            // Update UI State
             setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: smartTitle } : s));
         }
     } catch (e) {
@@ -267,7 +265,6 @@ const Chat = () => {
     setIsLoading(true);
 
     try {
-      // EDIT EXISTING MESSAGE
       if (editingMessageId) {
         const { error } = await supabase
           .from("chat_messages")
@@ -284,15 +281,13 @@ const Chat = () => {
         return; 
       }
 
-      // SEND NEW MESSAGE
       const userContent = messageText;
       setInput("");
       
       let activeSessionId = currentSessionId;
       
-      // NEW CHAT LOGIC
       if (!activeSessionId) {
-        // FIX: Fallback is now just the first 4 words, preventing ugly character slicing
+        // FIX: Fallback title is just the first 4 words.
         const words = userContent.split(' ');
         const tempTitle = words.slice(0, 4).join(' ') + (words.length > 4 ? "..." : "");
         
@@ -307,7 +302,6 @@ const Chat = () => {
         setCurrentSessionId(activeSessionId);
         setSessions(prev => [newSession, ...prev]);
 
-        // Trigger Smart AI Title Generation in background
         generateSmartTitle(newSession.id, userContent);
       }
 
@@ -353,7 +347,6 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Reusable Sidebar Render
   const renderSidebarList = () => (
     <div className="flex flex-col h-full p-2 w-full">
        <div className="flex items-center gap-2 mb-4 px-2 pt-2 shrink-0">
@@ -374,7 +367,6 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* FIX: Flexible container with min-w-0 ensures truncation happens properly */}
               <div className="flex items-center gap-2 flex-1 min-w-0 mr-1 overflow-hidden">
                 <MessageSquare className="w-4 h-4 shrink-0" />
                 {editingSessionId === session.id ? (
@@ -388,14 +380,12 @@ const Chat = () => {
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  // FIX: Text truncates with ... if it exceeds 3-4 words or width, keeping buttons visible
                   <span className="truncate w-full block text-left" title={session.title}>
                     {session.title}
                   </span>
                 )}
               </div>
               
-              {/* FIX: Buttons are shrink-0 so they never collapse */}
               <div className="flex items-center gap-0.5 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => startRenamingSession(e, session)} title="Rename">
                   <Pencil className="w-3.5 h-3.5" />
@@ -421,11 +411,9 @@ const Chat = () => {
     </div>
   );
 
-  // Reusable Chat Render
   const renderChatArea = () => (
     <div className="flex flex-col h-full w-full min-w-0">
         <header className="border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
-          {/* FIX: Header title container also made flexible */}
           <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
             <Sheet>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden shrink-0"><Menu className="w-5 h-5" /></Button></SheetTrigger>
@@ -433,16 +421,17 @@ const Chat = () => {
             </Sheet>
             
             {currentSessionId && editingSessionId === currentSessionId ? (
+                // FIX: Edit input is now flexible w-full to prevent cramping
                 <Input 
                   value={editSessionTitle}
                   onChange={(e) => setEditSessionTitle(e.target.value)}
                   onBlur={saveSessionTitle}
                   onKeyDown={handleRenameKeyDown}
                   autoFocus
-                  className="h-8 max-w-sm"
+                  className="h-8 w-full max-w-md"
                 />
             ) : (
-                <span className="font-semibold truncate">
+                <span className="font-semibold truncate text-base">
                 {currentSessionId ? (sessions.find(s => s.id === currentSessionId)?.title || "Chat") : "USWA Assistant"}
                 </span>
             )}
@@ -546,11 +535,12 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="border-r bg-muted/30">
+                {/* FIX: Increased default and max size to make chat panel/sidebar larger as requested */}
+                <ResizablePanel defaultSize={25} minSize={20} maxSize={50} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={80}>
+                <ResizablePanel defaultSize={75}>
                     {renderChatArea()}
                 </ResizablePanel>
             </ResizablePanelGroup>
