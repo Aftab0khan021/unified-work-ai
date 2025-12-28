@@ -29,11 +29,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isChatPage = location.pathname === '/chat' || location.pathname === '/team-chat';
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      {/* FIX: Use h-[100dvh] for mobile browsers. overflow-hidden prevents body scroll. */}
-      <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
-        <GlobalSearch /> 
-        <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
+    <SidebarProvider defaultOpen={true} className="w-full">
+      <GlobalSearch />
+      
+      {/* FIX: Use 100dvh for proper mobile viewport height and stop body scrolling */}
+      <div className="flex h-[100dvh] w-full overflow-hidden bg-background isolate">
+        <Sidebar className="border-r w-64 min-w-[16rem] shrink-0 z-20">
           <SidebarContent>
             <WorkspaceSwitcher /> 
             <SidebarGroup>
@@ -68,8 +69,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </SidebarContent>
         </Sidebar>
         
-        {/* FIX: min-h-0 is CRITICAL here. It allows this flex child to shrink properly. */}
-        <div className="flex-1 flex flex-col h-full min-w-0 min-h-0 overflow-hidden">
+        {/* FIX: Ensure content area can shrink and has its own scroll context */}
+        <div className="flex-1 flex flex-col h-full min-w-0 min-h-0 overflow-hidden relative z-10">
           <header className="flex items-center h-14 border-b px-4 bg-background shrink-0 justify-between">
              <div className="flex items-center">
                 <SidebarTrigger />
@@ -82,7 +83,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              </div>
           </header>
           
-          {/* FIX: Pass layout responsibility to children for chat pages */}
+          {/* FIX: Pass layout responsibility fully to chat pages */}
           <main className={`flex-1 min-w-0 min-h-0 ${isChatPage ? 'h-full overflow-hidden p-0' : 'overflow-auto p-6'}`}>
             {children}
           </main>
