@@ -4,11 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, Volume2, StopCircle, Share2 } from "lucide-react"; 
+import { Loader2, Mic, Send, Sparkles, LogOut, User, Plus, MessageSquare, Trash2, Menu, Volume2, StopCircle, Share2, Copy, Edit2 } from "lucide-react"; 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"; // <--- NEW IMPORT
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import VoiceRecorder from "@/components/VoiceRecorder";
 
 type Message = {
@@ -161,6 +161,21 @@ const Chat = () => {
     }, 50);
   };
 
+  // NEW: Handle Copy
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "Copied", description: "Text copied to clipboard." });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to copy text.", variant: "destructive" });
+    }
+  };
+
+  // NEW: Handle Edit (Populates input)
+  const handleEdit = (text: string) => {
+    setInput(text);
+  };
+
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
     if (!workspaceId) { toast({ title: "Error", description: "No workspace selected.", variant: "destructive" }); return; }
@@ -288,7 +303,7 @@ const Chat = () => {
           ) : <div className="w-8" />}
         </header>
 
-        {/* MESSAGES - Ensure min-h-0 so it scrolls instead of pushing page */}
+        {/* MESSAGES */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 overscroll-none">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
@@ -307,12 +322,33 @@ const Chat = () => {
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border"
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  <div className={`flex items-center gap-2 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  
+                  {/* Message Actions (Edit, Copy, TTS, Delete) */}
+                  <div className={`flex items-center gap-1 mt-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    
+                    {/* TTS (AI Only) */}
                     {message.role === 'assistant' && (
-                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors">
+                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
                             {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
                         </button>
                     )}
+
+                    {/* Copy (Both) */}
+                    <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Copy Text">
+                        <Copy className="w-4 h-4" />
+                    </button>
+
+                    {/* Edit (User Only) */}
+                    {message.role === 'user' && (
+                         <button onClick={() => handleEdit(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Edit Message">
+                            <Edit2 className="w-4 h-4" />
+                         </button>
+                    )}
+
+                    {/* Delete (Both) */}
+                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive opacity-70 hover:opacity-100" title="Delete Message">
+                        <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
                 {message.role === "user" && (
@@ -325,7 +361,7 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* INPUT - shrink-0 prevents it from disappearing */}
+        {/* INPUT */}
         <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
             <div className="relative flex-1">
