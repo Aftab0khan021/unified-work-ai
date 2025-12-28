@@ -30,7 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SidebarProvider defaultOpen={true}>
-      {/* FIX: Use 100dvh for mobile browsers and overflow-hidden to prevent body scroll */}
+      {/* FIX: Use h-[100dvh] for mobile browsers. overflow-hidden prevents body scroll. */}
       <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
         <GlobalSearch /> 
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
@@ -68,7 +68,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </SidebarContent>
         </Sidebar>
         
-        {/* FIX: Added min-h-0 to flex child to allow nested scrolling */}
+        {/* FIX: min-h-0 is CRITICAL here. It allows this flex child to shrink properly. */}
         <div className="flex-1 flex flex-col h-full min-w-0 min-h-0 overflow-hidden">
           <header className="flex items-center h-14 border-b px-4 bg-background shrink-0 justify-between">
              <div className="flex items-center">
@@ -82,7 +82,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              </div>
           </header>
           
-          {/* FIX: Added min-h-0 to ensure children can scroll independently */}
+          {/* FIX: Pass layout responsibility to children for chat pages */}
           <main className={`flex-1 min-w-0 min-h-0 ${isChatPage ? 'h-full overflow-hidden p-0' : 'overflow-auto p-6'}`}>
             {children}
           </main>

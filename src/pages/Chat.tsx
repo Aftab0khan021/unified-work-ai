@@ -229,9 +229,10 @@ const Chat = () => {
       <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
         <Plus className="w-4 h-4" /> New Chat
       </Button>
+      {/* FIX: Ensure scroll area has boundaries */}
       <ScrollArea className="flex-1 min-h-0">
         {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
-        <div className="space-y-1 pr-2">
+        <div className="space-y-1 pr-2 pb-2">
           {sessions.map((session) => (
             <div
               key={session.id}
@@ -276,8 +277,8 @@ const Chat = () => {
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
-      {/* FIX: Changed bg-card/30 to bg-muted/40 for better visibility on laptop */}
-      <div className="hidden md:flex w-64 shrink-0 flex-col border-r bg-muted/40 p-4">
+      {/* FIX: Use solid background (bg-muted) and shrink-0 to fix laptop visibility issue */}
+      <div className="hidden md:flex w-64 shrink-0 flex-col border-r bg-muted p-4">
         <div className="flex items-center gap-2 mb-6 px-2">
           <Sparkles className="w-5 h-5 text-primary" />
           <span className="font-semibold">USWA AI</span>
@@ -312,7 +313,7 @@ const Chat = () => {
           ) : <div className="w-8" />}
         </header>
 
-        {/* FIX: Added min-h-0 to ensure independent scrolling inside flex item */}
+        {/* FIX: min-h-0 enables scrolling of inner overflow-y-auto elements */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
@@ -353,7 +354,7 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0">
+        <div className="p-4 bg-background/80 backdrop-blur-sm border-t shrink-0 z-20">
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="max-w-3xl mx-auto relative flex gap-2">
             <div className="relative flex-1">
               <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI or create task..." disabled={isLoading} className="pr-10" />
