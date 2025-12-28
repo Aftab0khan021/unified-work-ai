@@ -326,16 +326,22 @@ const Chat = () => {
   // Reusable Chat Render
   const renderChatArea = () => (
     <div className="flex flex-col h-full w-full min-w-0">
-        <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
-          <Sheet>
-            <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
-            <SheetContent side="left" className="w-64 p-0">{renderSidebarList()}</SheetContent>
-          </Sheet>
-          <span className="font-semibold">USWA Assistant</span>
+        {/* FIX: Removed md:hidden to make header visible on desktop. Added md:hidden to Menu button only. */}
+        <header className="border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
+          <div className="flex items-center gap-2">
+            <Sheet>
+              <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden"><Menu className="w-5 h-5" /></Button></SheetTrigger>
+              <SheetContent side="left" className="w-64 p-0">{renderSidebarList()}</SheetContent>
+            </Sheet>
+            <span className="font-semibold truncate">
+              {currentSessionId ? (sessions.find(s => s.id === currentSessionId)?.title || "Chat") : "USWA Assistant"}
+            </span>
+          </div>
+          
           {currentSessionId ? (
              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}><Share2 className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
+                <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)} title="Share"><Share2 className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)} title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></Button>
              </div>
           ) : <div className="w-8" />}
         </header>
