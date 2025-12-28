@@ -17,7 +17,8 @@ import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents"; 
 import Calendar from "./pages/Calendar"; 
 import Settings from "./pages/Settings";
-import UpdatePassword from "./pages/UpdatePassword"; // <--- ADDED
+import UpdatePassword from "./pages/UpdatePassword";
+import ForgotPassword from "./pages/ForgotPassword"; // <--- Import the new page
 import DashboardLayout from "./components/DashboardLayout";
 
 const queryClient = new QueryClient();
@@ -52,7 +53,8 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-          <Route path="/update-password" element={<UpdatePassword />} /> {/* <--- ADDED */}
+          <Route path="/update-password" element={<UpdatePassword />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} /> {/* <--- Add the new route */}
 
           {/* Protected Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

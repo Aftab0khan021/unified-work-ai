@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,37 +96,6 @@ const Auth = () => {
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!email) {
-      toast({
-        title: "Email required",
-        description: "Please enter your email address in the field above first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/update-password`,
-      });
-      if (error) throw error;
-      toast({
-        title: "Reset link sent!",
-        description: "Check your email for the password reset link.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-accent/5 to-background p-4">
       <div className="w-full max-w-md">
@@ -168,14 +137,12 @@ const Auth = () => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="signin-password">Password</Label>
-                      <button
-                        type="button"
-                        onClick={handleForgotPassword}
+                      <Link
+                        to="/forgot-password"
                         className="text-xs text-primary hover:underline"
-                        disabled={isLoading}
                       >
                         Forgot password?
-                      </button>
+                      </Link>
                     </div>
                     <Input
                       id="signin-password"
@@ -190,7 +157,7 @@ const Auth = () => {
                     {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
+                        Signing in...
                       </>
                     ) : (
                       "Sign In"
