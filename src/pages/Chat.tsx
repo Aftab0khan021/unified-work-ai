@@ -36,8 +36,12 @@ const Chat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   
-  // EDIT STATE
+  // EDIT MESSAGE STATE
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  // RENAME SESSION STATE
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editSessionTitle, setEditSessionTitle] = useState("");
 
   // TTS State
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -100,6 +104,7 @@ const Chat = () => {
   const handleNewChat = () => {
     setCurrentSessionId(null);
     setEditingMessageId(null);
+    setEditingSessionId(null);
     setMessages([]);
     setInput("");
   };
@@ -111,6 +116,39 @@ const Chat = () => {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (currentSessionId === sessionId) handleNewChat();
       toast({ title: "Chat deleted" });
+    }
+  };
+
+  const startRenamingSession = (e: React.MouseEvent, session: Session) => {
+    e.stopPropagation();
+    setEditingSessionId(session.id);
+    setEditSessionTitle(session.title);
+  };
+
+  const saveSessionTitle = async () => {
+    if (!editingSessionId || !editSessionTitle.trim()) {
+      setEditingSessionId(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("chat_sessions")
+      .update({ title: editSessionTitle })
+      .eq("id", editingSessionId);
+
+    if (!error) {
+      setSessions(prev => prev.map(s => s.id === editingSessionId ? { ...s, title: editSessionTitle } : s));
+      toast({ title: "Chat renamed" });
+    }
+    setEditingSessionId(null);
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveSessionTitle();
+    } else if (e.key === "Escape") {
+      setEditingSessionId(null);
     }
   };
 
@@ -294,18 +332,32 @@ const Chat = () => {
                 currentSessionId === session.id ? "bg-accent font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* FIX: Title shrinks (min-w-0), Buttons DO NOT shrink (shrink-0) */}
               <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-1">
                 <MessageSquare className="w-4 h-4 shrink-0" />
-                <span className="truncate">{session.title}</span>
+                {editingSessionId === session.id ? (
+                  <Input 
+                    value={editSessionTitle}
+                    onChange={(e) => setEditSessionTitle(e.target.value)}
+                    onBlur={saveSessionTitle}
+                    onKeyDown={handleRenameKeyDown}
+                    autoFocus
+                    className="h-6 text-xs px-1"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="truncate">{session.title}</span>
+                )}
               </div>
               
-              {/* FIX: Buttons are shrink-0 and always visible */}
+              {/* FIX: Removed 'opacity-0' so buttons are always visible. Added Rename button. */}
               <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => startRenamingSession(e, session)} title="Rename">
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={(e) => deleteSession(e, session.id)} title="Delete Chat">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={(e) => deleteSession(e, session.id)} title="Delete">
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -326,21 +378,37 @@ const Chat = () => {
   // Reusable Chat Render
   const renderChatArea = () => (
     <div className="flex flex-col h-full w-full min-w-0">
-        {/* FIX: Removed md:hidden from header so it is visible on desktop */}
         <header className="border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
             <Sheet>
-              {/* FIX: Added md:hidden to Menu Button so it only shows on mobile */}
-              <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden"><Menu className="w-5 h-5" /></Button></SheetTrigger>
+              <SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden shrink-0"><Menu className="w-5 h-5" /></Button></SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">{renderSidebarList()}</SheetContent>
             </Sheet>
-            <span className="font-semibold truncate">
-              {currentSessionId ? (sessions.find(s => s.id === currentSessionId)?.title || "Chat") : "USWA Assistant"}
-            </span>
+            
+            {/* Header Title with Edit Logic */}
+            {currentSessionId && editingSessionId === currentSessionId ? (
+                <Input 
+                  value={editSessionTitle}
+                  onChange={(e) => setEditSessionTitle(e.target.value)}
+                  onBlur={saveSessionTitle}
+                  onKeyDown={handleRenameKeyDown}
+                  autoFocus
+                  className="h-8 max-w-sm"
+                />
+            ) : (
+                <span className="font-semibold truncate">
+                {currentSessionId ? (sessions.find(s => s.id === currentSessionId)?.title || "Chat") : "USWA Assistant"}
+                </span>
+            )}
           </div>
           
+          {/* Header Actions - Same as Sidebar */}
           {currentSessionId ? (
-             <div className="flex gap-1">
+             <div className="flex gap-1 shrink-0 ml-2">
+                <Button variant="ghost" size="icon" onClick={(e) => {
+                    const s = sessions.find(s => s.id === currentSessionId);
+                    if(s) startRenamingSession(e, s);
+                }} title="Rename"><Pencil className="w-4 h-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)} title="Share"><Share2 className="w-4 h-4" /></Button>
                 <Button variant="ghost" size="icon" onClick={(e) => deleteSession(e, currentSessionId!)} title="Delete"><Trash2 className="w-4 h-4 text-red-500" /></Button>
              </div>
@@ -366,7 +434,6 @@ const Chat = () => {
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  {/* FIX: flex-wrap to prevent buttons from disappearing. Explicit text colors to ensure visibility. */}
                   <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end text-primary-foreground/90' : 'justify-start text-muted-foreground'}`}>
                     {message.role === 'assistant' && (
                         <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/10 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
@@ -434,7 +501,6 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                {/* Fixed minSize to prevent disappearing content */}
                 <ResizablePanel defaultSize={20} minSize={15} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
