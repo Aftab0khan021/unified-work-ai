@@ -229,7 +229,7 @@ const Chat = () => {
       <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4" variant="outline">
         <Plus className="w-4 h-4" /> New Chat
       </Button>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         {sessions.length === 0 && <div className="text-xs text-muted-foreground text-center mt-4">No history</div>}
         <div className="space-y-1 pr-2">
           {sessions.map((session) => (
@@ -245,7 +245,6 @@ const Chat = () => {
                 <span className="truncate">{session.title}</span>
               </div>
               
-              {/* Direct Buttons: Always Visible */}
               <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
@@ -276,9 +275,9 @@ const Chat = () => {
   if (!user) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    // FIX: Changed from h-screen to h-full to fit Dashboard Layout
     <div className="flex h-full bg-background overflow-hidden">
-      <div className="hidden md:flex w-64 flex-col border-r bg-card/30 p-4">
+      {/* FIX: Changed bg-card/30 to bg-muted/40 for better visibility on laptop */}
+      <div className="hidden md:flex w-64 shrink-0 flex-col border-r bg-muted/40 p-4">
         <div className="flex items-center gap-2 mb-6 px-2">
           <Sparkles className="w-5 h-5 text-primary" />
           <span className="font-semibold">USWA AI</span>
@@ -293,7 +292,7 @@ const Chat = () => {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col h-full relative">
+      <div className="flex-1 flex flex-col h-full min-w-0 relative">
         <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
           <Sheet>
             <SheetTrigger asChild><Button variant="ghost" size="icon"><Menu className="w-5 h-5" /></Button></SheetTrigger>
@@ -301,7 +300,6 @@ const Chat = () => {
           </Sheet>
           <span className="font-semibold">USWA Assistant</span>
           
-          {/* Header Action Buttons (Backup) */}
           {currentSessionId ? (
              <div className="flex gap-1">
                 <Button variant="ghost" size="icon" onClick={(e) => shareSession(e, currentSessionId!)}>
@@ -314,7 +312,8 @@ const Chat = () => {
           ) : <div className="w-8" />}
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+        {/* FIX: Added min-h-0 to ensure independent scrolling inside flex item */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">

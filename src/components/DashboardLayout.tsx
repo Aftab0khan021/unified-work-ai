@@ -30,7 +30,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SidebarProvider defaultOpen={true}>
-      <div className="flex h-screen w-full overflow-hidden bg-background">
+      {/* FIX: Use 100dvh for mobile browsers and overflow-hidden to prevent body scroll */}
+      <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
         <GlobalSearch /> 
         <Sidebar className="border-r w-64 min-w-[16rem] shrink-0">
           <SidebarContent>
@@ -66,7 +67,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </SidebarGroup>
           </SidebarContent>
         </Sidebar>
-        <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+        
+        {/* FIX: Added min-h-0 to flex child to allow nested scrolling */}
+        <div className="flex-1 flex flex-col h-full min-w-0 min-h-0 overflow-hidden">
           <header className="flex items-center h-14 border-b px-4 bg-background shrink-0 justify-between">
              <div className="flex items-center">
                 <SidebarTrigger />
@@ -79,8 +82,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              </div>
           </header>
           
-          {/* FIX: Conditional styling based on page type */}
-          <main className={`flex-1 min-w-0 ${isChatPage ? 'h-full overflow-hidden p-0' : 'overflow-auto p-6'}`}>
+          {/* FIX: Added min-h-0 to ensure children can scroll independently */}
+          <main className={`flex-1 min-w-0 min-h-0 ${isChatPage ? 'h-full overflow-hidden p-0' : 'overflow-auto p-6'}`}>
             {children}
           </main>
         </div>
