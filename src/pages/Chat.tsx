@@ -273,14 +273,14 @@ const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Reusable JSX for the Sidebar List to avoid code duplication
+  // Reusable Sidebar Render
   const renderSidebarList = () => (
-    <div className="flex flex-col h-full p-2 overflow-hidden w-full">
-       <div className="flex items-center gap-2 mb-4 px-2 pt-2 shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full p-2 w-full">
+       <div className="flex items-center gap-2 mb-4 px-2 pt-2 shrink-0">
           <Sparkles className="w-5 h-5 text-primary shrink-0" />
           <span className="font-semibold truncate">USWA AI</span>
         </div>
-      <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4 shrink-0 overflow-hidden" variant="outline">
+      <Button onClick={handleNewChat} className="w-full justify-start gap-2 mb-4 shrink-0" variant="outline">
         <Plus className="w-4 h-4 shrink-0" /> <span className="truncate">New Chat</span>
       </Button>
       <ScrollArea className="flex-1 -mx-2 px-2 w-full">
@@ -299,7 +299,7 @@ const Chat = () => {
                 <span className="truncate">{session.title}</span>
               </div>
               
-              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity bg-background/50 rounded-md backdrop-blur-sm">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={(e) => shareSession(e, session.id)} title="Share Chat">
                   <Share2 className="w-3.5 h-3.5" />
                 </Button>
@@ -311,7 +311,7 @@ const Chat = () => {
           ))}
         </div>
       </ScrollArea>
-       <div className="mt-auto pt-4 border-t flex items-center justify-between shrink-0 overflow-hidden w-full">
+       <div className="mt-auto pt-4 border-t flex items-center justify-between shrink-0 w-full overflow-hidden">
           <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden flex-1 min-w-0">
             <Avatar className="w-6 h-6 shrink-0"><AvatarFallback><User className="w-3 h-3" /></AvatarFallback></Avatar>
             <span className="truncate">{user.email}</span>
@@ -321,7 +321,7 @@ const Chat = () => {
     </div>
   );
 
-  // Reusable JSX for the Chat Area to avoid code duplication
+  // Reusable Chat Render
   const renderChatArea = () => (
     <div className="flex flex-col h-full w-full min-w-0">
         <header className="md:hidden border-b p-4 flex items-center justify-between bg-background z-10 shrink-0">
@@ -357,22 +357,22 @@ const Chat = () => {
                 }`}>
                   <p className="whitespace-pre-wrap leading-relaxed break-words">{message.content}</p>
                   
-                  {/* FIX: flex-wrap ensures buttons don't disappear on narrow screens */}
-                  <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {/* MESSAGE ACTIONS - Now clearly visible and won't be hidden */}
+                  <div className={`flex items-center gap-1 mt-2 shrink-0 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     {message.role === 'assistant' && (
-                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/5 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
-                            {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4 opacity-50 hover:opacity-100" />}
+                        <button onClick={() => speakText(message.content, message.id)} className="p-1 rounded hover:bg-black/10 transition-colors" title={speakingMessageId === message.id ? "Stop" : "Read Aloud"}>
+                            {speakingMessageId === message.id ? <StopCircle className="w-4 h-4 text-red-500" /> : <Volume2 className="w-4 h-4" />}
                         </button>
                     )}
-                    <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Copy Text">
+                    <button onClick={() => handleCopy(message.content)} className="p-1 rounded hover:bg-black/10 transition-colors" title="Copy Text">
                         <Copy className="w-4 h-4" />
                     </button>
                     {message.role === 'user' && (
-                         <button onClick={() => handleEdit(message)} className="p-1 rounded hover:bg-black/5 transition-colors text-inherit opacity-70 hover:opacity-100" title="Edit Message">
+                         <button onClick={() => handleEdit(message)} className="p-1 rounded hover:bg-black/10 transition-colors" title="Edit Message">
                             <Pencil className="w-4 h-4" />
                          </button>
                     )}
-                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded transition-colors hover:bg-black/5 hover:text-destructive opacity-70 hover:opacity-100" title="Delete Message">
+                    <button onClick={() => deleteMessage(message.id)} className="p-1 rounded hover:bg-black/10 transition-colors hover:text-destructive" title="Delete Message">
                         <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -425,12 +425,12 @@ const Chat = () => {
         {/* DESKTOP: Resizable Layout */}
         <div className="hidden md:flex h-full w-full">
             <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                {/* FIX: Lower minSize to 12 allows panel to be narrower without breaking layout */}
-                <ResizablePanel defaultSize={20} minSize={12} maxSize={40} className="border-r bg-muted/30">
+                {/* Fixed minSize to prevent disappearing content */}
+                <ResizablePanel defaultSize={25} minSize={15} maxSize={40} className="border-r bg-muted/30">
                     {renderSidebarList()}
                 </ResizablePanel>
                 <ResizableHandle withHandle />
-                <ResizablePanel defaultSize={80}>
+                <ResizablePanel defaultSize={75}>
                     {renderChatArea()}
                 </ResizablePanel>
             </ResizablePanelGroup>
