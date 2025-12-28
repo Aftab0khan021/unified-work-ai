@@ -27,8 +27,27 @@ const ForgotPassword = () => {
 
     setIsLoading(true);
     try {
-      // For security reasons, we don't explicitly confirm if the email exists.
-      // We send a link if it does, and show the same success message either way.
+      // 1. Check if the user exists using the database function we created
+      const { data: userExists, error: checkError } = await supabase.rpc('check_email_exists', { 
+        email_arg: email 
+      });
+
+      if (checkError) {
+        throw new Error("Failed to verify email. Please try again.");
+      }
+
+      // 2. Logic: If user does NOT exist, show error.
+      if (!userExists) {
+        toast({
+          title: "Account not found",
+          description: "This email is not registered. Please sign up first.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return; // Stop here, do not send email
+      }
+
+      // 3. Logic: If user DOES exist, send the reset link.
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/update-password`,
       });
@@ -37,16 +56,16 @@ const ForgotPassword = () => {
 
       toast({
         title: "Reset link sent",
-        description: "If an account exists for this email, you will receive a password reset link shortly. Please check your inbox and spam folder.",
+        description: "Please check your inbox (and spam folder) for the password reset link.",
       });
       
-      // Redirect back to the sign-in page after a short delay
+      // Redirect back to sign-in after 3 seconds
       setTimeout(() => navigate("/auth"), 3000);
 
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "An error occurred. Please try again later.",
+        description: error.message || "An error occurred.",
         variant: "destructive",
       });
     } finally {
@@ -82,7 +101,7 @@ const ForgotPassword = () => {
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending link...
+                    Checking...
                   </>
                 ) : (
                   "Send Reset Link"
